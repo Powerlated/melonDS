@@ -76,8 +76,8 @@ public:
     bool KeyOn = false;
     u32 Timer = 0;
     s32 Pos = 0;
-    s16 PrevSample[3] {};
     s16 CurSample = 0;
+    s32 CurVal = 0;
     u16 NoiseVal = 0;
 
     s32 ADPCMVal = 0;
@@ -132,29 +132,33 @@ public:
 
     s32 DoRun()
     {
+        s32 val;
         switch ((Cnt >> 29) & 0x3)
         {
-        case 0: return Run<0>(); break;
-        case 1: return Run<1>(); break;
-        case 2: return Run<2>(); break;
+        case 0: val = Run<0>(); break;
+        case 1: val = Run<1>(); break;
+        case 2: val = Run<2>(); break;
         case 3:
             if (Num >= 14)
             {
-                return Run<4>();
+                val = Run<4>();
                 break;
             }
             else if (Num >= 8)
             {
-                return Run<3>();
+                val = Run<3>();
                 break;
             }
             [[fallthrough]];
         default:
-            return 0;
+            val = 0;
         }
+
+        CurVal = val;
+        return val;
     }
 
-    void PanOutput(s32 in, SPUSample<s32> &out);
+    void MixIntoSampleWithPan(s32 in, SPUSample<s32> &out);
 
 private:
     melonDS::NDS& NDS;

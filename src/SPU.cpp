@@ -350,8 +350,8 @@ void SPUChannel::DoSavestate(Savestate* file)
     file->Var8((u8*)&KeyOn);
     file->Var32(&Timer);
     file->Var32((u32*)&Pos);
-    file->VarArray(PrevSample, sizeof(PrevSample));
     file->Var16((u16*)&CurSample);
+    file->Var32((u32*)&CurVal);
     file->Var16(&NoiseVal);
 
     file->Var32((u32*)&ADPCMVal);
@@ -432,9 +432,6 @@ void SPUChannel::Start()
         Pos = -3;
 
     NoiseVal = 0x7FFF;
-    PrevSample[0] = 0;
-    PrevSample[1] = 0;
-    PrevSample[2] = 0;
     CurSample = 0;
 
     FIFOReadPos = 0;
@@ -627,10 +624,10 @@ s32 SPUChannel::Run()
     return val;
 }
 
-void SPUChannel::PanOutput(s32 in, SPUSample<s32>& out)
+void SPUChannel::MixIntoSampleWithPan(s32 in, SPUSample<s32>& sample)
 {
-    out.l += ((s64)in * (128-Pan)) >> 10;
-    out.r += ((s64)in * Pan) >> 10;
+    sample.l += ((s64)in * (128-Pan)) >> 10;
+    sample.r += ((s64)in * Pan) >> 10;
 }
 
 
@@ -757,14 +754,113 @@ void SPUCaptureUnit::Run(s32 sample)
 }
 
 SPUSample<s32> SPU::Mix() {
-    
+    SPUSample<s32> sample{};
+    SPUSample<s32> output{};
+
+    s32 ch0 = Channels[0].CurVal;
+    s32 ch1 = Channels[1].CurVal;
+    s32 ch2 = Channels[2].CurVal;
+    s32 ch3 = Channels[3].CurVal;
+
+    // TODO: addition from capture registers
+    Channels[0].MixIntoSampleWithPan(ch0, sample);
+    Channels[2].MixIntoSampleWithPan(ch2, sample);
+
+    if (!(Cnt & (1<<12))) Channels[1].MixIntoSampleWithPan(ch1, sample);
+    if (!(Cnt & (1<<13))) Channels[3].MixIntoSampleWithPan(ch3, sample);
+
+    for (int i = 4; i < 16; i++)
+    {
+        SPUChannel* chan = &Channels[i];
+        chan->MixIntoSampleWithPan(chan->CurVal, sample);
+    }
+
+    // final output
+
+    switch (Cnt & 0x0300)
+    {
+    case 0x0000: // left mixer
+        output.l = sample.l;
+        break;
+    case 0x0100: // channel 1
+        {
+            s32 pan = 128 - Channels[1].Pan;
+            output.l = ((s64)ch1 * pan) >> 10;
+        }
+        break;
+    case 0x0200: // channel 3
+        {
+            s32 pan = 128 - Channels[3].Pan;
+            output.l = ((s64)ch3 * pan) >> 10;
+        }
+        break;
+    case 0x0300: // channel 1+3
+        {
+            s32 pan1 = 128 - Channels[1].Pan;
+            s32 pan3 = 128 - Channels[3].Pan;
+            output.l = (((s64)ch1 * pan1) >> 10) + (((s64)ch3 * pan3) >> 10);
+        }
+        break;
+    }
+
+    switch (Cnt & 0x0C00)
+    {
+    case 0x0000: // right mixer
+        output.r = sample.r;
+        break;
+    case 0x0400: // channel 1
+        {
+            s32 pan = Channels[1].Pan;
+            output.r = ((s64)ch1 * pan) >> 10;
+        }
+        break;
+    case 0x0800: // channel 3
+        {
+            s32 pan = Channels[3].Pan;
+            output.r = ((s64)ch3 * pan) >> 10;
+        }
+        break;
+    case 0x0C00: // channel 1+3
+        {
+            s32 pan1 = Channels[1].Pan;
+            s32 pan3 = Channels[3].Pan;
+            output.r = (((s64)ch1 * pan1) >> 10) + (((s64)ch3 * pan3) >> 10);
+        }
+        break;
+    }
+
+    output.l = ((s64)output.l * MasterVolume) >> 7;
+    output.r = ((s64)output.r * MasterVolume) >> 7;
+
+    output.l >>= 8;
+    output.r >>= 8;
+
+    // Add SOUNDBIAS value
+    // The value used by all commercial games is 0x200, so we subtract that so it won't offset the final sound output.
+    if (ApplyBias)
+    {
+        output.l += (Bias << 6) - 0x8000;
+        output.r += (Bias << 6) - 0x8000;
+    }
+
+    if      (output.l < -0x8000) output.l = -0x8000;
+    else if (output.l > 0x7FFF)  output.l = 0x7FFF;
+    if      (output.r < -0x8000) output.r = -0x8000;
+    else if (output.r > 0x7FFF)  output.r = 0x7FFF;
+
+    // The original DS and DS lite degrade the output from 16 to 10 bit before output
+    if (Degrade10Bit)
+    {
+        output.l &= 0xFFFFFFC0;
+        output.r &= 0xFFFFFFC0;
+    }
+
+    return output;
 }
 
 void SPU::Run(u32 dummy)
 {
-   
-    SPUSample<s32> sample = {0};
-    SPUSample<s32> output = {0};
+    SPUSample<s32> sample{}, output{};
 
     if ((Cnt & (1<<15)) && (!dummy))
     {
@@ -774,18 +870,18 @@ void SPU::Run(u32 dummy)
         s32 ch3 = Channels[3].DoRun();
 
         // TODO: addition from capture registers
-        Channels[0].PanOutput(ch0, sample);
-        Channels[2].PanOutput(ch2, sample);
+        Channels[0].MixIntoSampleWithPan(ch0, sample);
+        Channels[2].MixIntoSampleWithPan(ch2, sample);
 
-        if (!(Cnt & (1<<12))) Channels[1].PanOutput(ch1, sample);
-        if (!(Cnt & (1<<13))) Channels[3].PanOutput(ch3, sample);
+        if (!(Cnt & (1<<12))) Channels[1].MixIntoSampleWithPan(ch1, sample);
+        if (!(Cnt & (1<<13))) Channels[3].MixIntoSampleWithPan(ch3, sample);
 
         for (int i = 4; i < 16; i++)
         {
             SPUChannel* chan = &Channels[i];
 
             s32 channel = chan->DoRun();
-            chan->PanOutput(channel, sample);
+            chan->MixIntoSampleWithPan(channel, sample);
         }
 
         // sound capture
@@ -813,85 +909,7 @@ void SPU::Run(u32 dummy)
             Capture[1].Run(val);
         }
 
-        // final output
-
-        switch (Cnt & 0x0300)
-        {
-        case 0x0000: // left mixer
-            output.l = sample.l;
-            break;
-        case 0x0100: // channel 1
-            {
-                s32 pan = 128 - Channels[1].Pan;
-                output.l = ((s64)ch1 * pan) >> 10;
-            }
-            break;
-        case 0x0200: // channel 3
-            {
-                s32 pan = 128 - Channels[3].Pan;
-                output.l = ((s64)ch3 * pan) >> 10;
-            }
-            break;
-        case 0x0300: // channel 1+3
-            {
-                s32 pan1 = 128 - Channels[1].Pan;
-                s32 pan3 = 128 - Channels[3].Pan;
-                output.l = (((s64)ch1 * pan1) >> 10) + (((s64)ch3 * pan3) >> 10);
-            }
-            break;
-        }
-
-        switch (Cnt & 0x0C00)
-        {
-        case 0x0000: // right mixer
-            output.r = sample.r;
-            break;
-        case 0x0400: // channel 1
-            {
-                s32 pan = Channels[1].Pan;
-                output.r = ((s64)ch1 * pan) >> 10;
-            }
-            break;
-        case 0x0800: // channel 3
-            {
-                s32 pan = Channels[3].Pan;
-                output.r = ((s64)ch3 * pan) >> 10;
-            }
-            break;
-        case 0x0C00: // channel 1+3
-            {
-                s32 pan1 = Channels[1].Pan;
-                s32 pan3 = Channels[3].Pan;
-                output.r = (((s64)ch1 * pan1) >> 10) + (((s64)ch3 * pan3) >> 10);
-            }
-            break;
-        }
-    }
-
-    output.l = ((s64)output.l * MasterVolume) >> 7;
-    output.r = ((s64)output.r * MasterVolume) >> 7;
-
-    output.l >>= 8;
-    output.r >>= 8;
-
-    // Add SOUNDBIAS value
-    // The value used by all commercial games is 0x200, so we subtract that so it won't offset the final sound output.
-    if (ApplyBias)
-    {
-        output.l += (Bias << 6) - 0x8000;
-        output.r += (Bias << 6) - 0x8000;
-    }
-
-    if      (output.l < -0x8000) output.l = -0x8000;
-    else if (output.l > 0x7FFF)  output.l = 0x7FFF;
-    if      (output.r < -0x8000) output.r = -0x8000;
-    else if (output.r > 0x7FFF)  output.r = 0x7FFF;
-
-    // The original DS and DS lite degrade the output from 16 to 10 bit before output
-    if (Degrade10Bit)
-    {
-        output.l &= 0xFFFFFFC0;
-        output.r &= 0xFFFFFFC0;
+        output = Mix();
     }
 
     // OutputBufferFrame can never get full because it's
