@@ -50,17 +50,13 @@ struct SPUSample {
 class SPUChannel
 {
 public:
-    SPUChannel(u32 num, melonDS::NDS& nds, AudioInterpolation interpolation);
+    SPUChannel(u32 num, melonDS::NDS& nds);
     void Reset();
     void DoSavestate(Savestate* file);
 
     static const s8 ADPCMIndexTable[8];
     static const u16 ADPCMTable[89];
     static const s16 PSGTable[8][8];
-
-    // audio interpolation is an improvement upon the original hardware
-    // (which performs no interpolation)
-    AudioInterpolation InterpolationType = AudioInterpolation::Clean;
 
     const u32 Num;
 

@@ -73,23 +73,24 @@ const int RESAMPLER_CUTOFF = 16384;
 SPU::SPU(melonDS::NDS& nds, AudioBitDepth bitdepth, AudioInterpolation interpolation) :
     NDS(nds),
     Channels {
-        SPUChannel(0, nds, interpolation),
-        SPUChannel(1, nds, interpolation),
-        SPUChannel(2, nds, interpolation),
-        SPUChannel(3, nds, interpolation),
-        SPUChannel(4, nds, interpolation),
-        SPUChannel(5, nds, interpolation),
-        SPUChannel(6, nds, interpolation),
-        SPUChannel(7, nds, interpolation),
-        SPUChannel(8, nds, interpolation),
-        SPUChannel(9, nds, interpolation),
-        SPUChannel(10, nds, interpolation),
-        SPUChannel(11, nds, interpolation),
-        SPUChannel(12, nds, interpolation),
-        SPUChannel(13, nds, interpolation),
-        SPUChannel(14, nds, interpolation),
-        SPUChannel(15, nds, interpolation),
+        SPUChannel(0, nds),
+        SPUChannel(1, nds),
+        SPUChannel(2, nds),
+        SPUChannel(3, nds),
+        SPUChannel(4, nds),
+        SPUChannel(5, nds),
+        SPUChannel(6, nds),
+        SPUChannel(7, nds),
+        SPUChannel(8, nds),
+        SPUChannel(9, nds),
+        SPUChannel(10, nds),
+        SPUChannel(11, nds),
+        SPUChannel(12, nds),
+        SPUChannel(13, nds),
+        SPUChannel(14, nds),
+        SPUChannel(15, nds),    
     },
+    InterpolationType(interpolation),
     Capture {
         SPUCaptureUnit(0, nds),
         SPUCaptureUnit(1, nds),
@@ -105,8 +106,6 @@ SPU::SPU(melonDS::NDS& nds, AudioBitDepth bitdepth, AudioInterpolation interpola
     Degrade10Bit = false;
 
     memset(OutputFrontBuffer, 0, sizeof(OutputFrontBuffer));
-
-    SetInterpolation(AudioInterpolation::Clean);
 
     OutputBackBufferWritePosition = 0;
     OutputFrontBufferReadPosition = 0;
@@ -179,8 +178,6 @@ void SPU::SetPowerCnt(u32 val)
 void SPU::SetInterpolation(AudioInterpolation type)
 {
     InterpolationType = type;
-    for (SPUChannel& channel : Channels)
-        channel.InterpolationType = type;
 }
 
 void SPU::SetBias(u16 bias)
@@ -214,10 +211,9 @@ void SPU::SetDegrade10Bit(AudioBitDepth depth)
     }
 }
 
-SPUChannel::SPUChannel(u32 num, melonDS::NDS& nds, AudioInterpolation interpolation) :
+SPUChannel::SPUChannel(u32 num, melonDS::NDS& nds) :
     NDS(nds),
-    Num(num),
-    InterpolationType(interpolation)
+    Num(num)
 {
 }
 
