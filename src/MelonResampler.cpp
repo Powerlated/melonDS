@@ -45,8 +45,10 @@ MelonResampler::MelonResampler(
 
 void MelonResampler::Reset()
 {
-  deltaDequeL.clear();
-  deltaDequeR.clear();
+  for (auto &deque : deltaDeques)
+  {
+    deque.clear();
+  }
 
   lastT = Sample{};
   lastV = Sample{};
@@ -57,13 +59,12 @@ void MelonResampler::Reset()
 
 void MelonResampler::WalkBackTime(float t)
 {
-  for (auto &delta : deltaDequeL)
+  for (auto &deque : deltaDeques)
   {
-    delta.t -= t;
-  }
-  for (auto &delta : deltaDequeR)
-  {
-    delta.t -= t;
+    for (auto &delta : deque)
+    {
+      delta.t -= t;
+    }
   }
   lastT -= t;
   thisBufferStartT -= t;
@@ -73,7 +74,7 @@ void MelonResampler::AddSampleL(float t, float v)
 {
   assert(t >= lastT.l);
 
-  deltaDequeL.push_back({t, v - lastV.l});
+  deltaDeques[0].push_back({t, v - lastV.l});
   lastT.l = t;
   lastV.l = v;
 }
@@ -82,7 +83,7 @@ void MelonResampler::AddSampleR(float t, float v)
 {
   assert(t >= lastT.r);
 
-  deltaDequeR.push_back({t, v - lastV.r});
+  deltaDeques[1].push_back({t, v - lastV.r});
   lastT.r = t;
   lastV.r = v;
 }
@@ -100,10 +101,9 @@ const std::vector<MelonResampler::Sample> &MelonResampler::GenerateOutputBuffer(
 
   float thisBufferEndT = thisBufferStartT + SamplesToSeconds(outputBufferLen);
 
-  auto deques = {&deltaDequeL, &deltaDequeR};
-  for (const auto &deque : deques)
+  for (const auto &deque : deltaDeques)
   {
-    for (const auto &delta : *deque)
+    for (const auto &delta : deque)
     {
       // The next delta is past the end of the buffer, we are done for now
       if (delta.t > thisBufferEndT)
@@ -131,7 +131,7 @@ const std::vector<MelonResampler::Sample> &MelonResampler::GenerateOutputBuffer(
         float bufT = thisBufferStartT + i * SamplesToSeconds(1);
         float irT = bufT - delta.t;
         float value = delta.dV * CausalScaledWindowedSincLUT(irT);
-        if (deque == &deltaDequeL)
+        if (&deque == &deltaDeques[0])
         {
           outputBuffer.at(i).l += value;
         }
@@ -144,14 +144,12 @@ const std::vector<MelonResampler::Sample> &MelonResampler::GenerateOutputBuffer(
   }
 
   // Remove deltas that won't affect the next buffer
-  while (deltaDequeL.front().t + SamplesToSeconds(irLen) < thisBufferEndT)
+  for (auto &deque : deltaDeques)
   {
-    deltaDequeL.pop_front();
-  }
-
-  while (deltaDequeR.front().t + SamplesToSeconds(irLen) < thisBufferEndT)
-  {
-    deltaDequeR.pop_front();
+    while (deque.front().t + SamplesToSeconds(irLen) < thisBufferEndT)
+    {
+      deque.pop_front();
+    }
   }
 
   // Integrate the output buffer, using Kahan summation algorithm

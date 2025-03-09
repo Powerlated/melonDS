@@ -58,7 +58,7 @@ private:
 
     std::function<void(std::vector<float> &)> audioReadyCallback;
     std::vector<float> lut;
-    std::deque<Delta> deltaDequeL, deltaDequeR;
+    std::deque<Delta> deltaDeques[2];
     std::vector<Sample> outputBuffer;
 
     float fsOut;
