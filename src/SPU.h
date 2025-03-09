@@ -41,6 +41,11 @@ enum class AudioInterpolation
     Smooth    // Low-passed at the Fs/2 of the instrument sample - No crunchiness, no aliasing.
 };
 
+template <typename T>
+struct SPUSample {
+    T l, r;
+};
+
 class SPUChannel
 {
 public:
@@ -149,7 +154,7 @@ public:
         }
     }
 
-    void PanOutput(s32 in, s32& left, s32& right);
+    void PanOutput(s32 in, SPUSample<s32> &out);
 
 private:
     melonDS::NDS& NDS;
@@ -231,13 +236,12 @@ public:
     void SetDegrade10Bit(AudioBitDepth depth);
     void SetApplyBias(bool enable);
 
-    void Mix(u32 dummy);
+    SPUSample<s32> Mix();
+    void Run(u32 dummy);
 
-    void TrimOutput();
     void DrainOutput();
     void InitOutput();
     int GetOutputSize() const;
-    void Sync(bool wait);
     int ReadOutput(s16* data, int samples);
     void TransferOutput();
 
@@ -249,12 +253,12 @@ public:
     void Write32(u32 addr, u32 val);
 
 private:
-    static const u32 OutputBufferSize = 2*2048;
+    static const u32 OutputBufferLen = 4096;
     melonDS::NDS& NDS;
-    s16 OutputBackbuffer[2 * OutputBufferSize] {};
-    u32 OutputBackbufferWritePosition = 0;
+    SPUSample<s16> OutputBackBuffer[OutputBufferLen] {};
+    u32 OutputBackBufferWritePosition = 0;
 
-    s16 OutputFrontBuffer[2 * OutputBufferSize] {};
+    SPUSample<s16> OutputFrontBuffer[OutputBufferLen] {};
     u32 OutputFrontBufferWritePosition = 0;
     u32 OutputFrontBufferReadPosition = 0;
 

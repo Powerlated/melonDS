@@ -202,14 +202,14 @@ SPU::SPU(melonDS::NDS& nds, AudioBitDepth bitdepth, AudioInterpolation interpola
     AudioLock(Platform::Mutex_Create()),
     Degrade10Bit(bitdepth == AudioBitDepth::_10Bit || (nds.ConsoleType == 1 && bitdepth == AudioBitDepth::Auto))
 {
-    NDS.RegisterEventFuncs(Event_SPU, this, {MakeEventThunk(SPU, Mix)});
+    NDS.RegisterEventFuncs(Event_SPU, this, {MakeEventThunk(SPU, Run)});
 
     ApplyBias = true;
     Degrade10Bit = false;
 
-    memset(OutputFrontBuffer, 0, 2*OutputBufferSize*2);
+    memset(OutputFrontBuffer, 0, sizeof(OutputFrontBuffer));
 
-    OutputBackbufferWritePosition = 0;
+    OutputBackBufferWritePosition = 0;
     OutputFrontBufferReadPosition = 0;
     OutputFrontBufferWritePosition = 0;
 }
@@ -242,9 +242,9 @@ void SPU::Reset()
 void SPU::Stop()
 {
     Platform::Mutex_Lock(AudioLock);
-    memset(OutputFrontBuffer, 0, 2*OutputBufferSize*2);
+    memset(OutputFrontBuffer, 0, sizeof(OutputFrontBuffer));
 
-    OutputBackbufferWritePosition = 0;
+    OutputBackBufferWritePosition = 0;
     OutputFrontBufferReadPosition = 0;
     OutputFrontBufferWritePosition = 0;
     Platform::Mutex_Unlock(AudioLock);
@@ -627,10 +627,10 @@ s32 SPUChannel::Run()
     return val;
 }
 
-void SPUChannel::PanOutput(s32 in, s32& left, s32& right)
+void SPUChannel::PanOutput(s32 in, SPUSample<s32>& out)
 {
-    left += ((s64)in * (128-Pan)) >> 10;
-    right += ((s64)in * Pan) >> 10;
+    out.l += ((s64)in * (128-Pan)) >> 10;
+    out.r += ((s64)in * Pan) >> 10;
 }
 
 
@@ -756,11 +756,15 @@ void SPUCaptureUnit::Run(s32 sample)
     }
 }
 
+SPUSample<s32> SPU::Mix() {
+    
+}
 
-void SPU::Mix(u32 dummy)
+void SPU::Run(u32 dummy)
 {
-    s32 left = 0, right = 0;
-    s32 leftoutput = 0, rightoutput = 0;
+   
+    SPUSample<s32> sample = {0};
+    SPUSample<s32> output = {0};
 
     if ((Cnt & (1<<15)) && (!dummy))
     {
@@ -770,18 +774,18 @@ void SPU::Mix(u32 dummy)
         s32 ch3 = Channels[3].DoRun();
 
         // TODO: addition from capture registers
-        Channels[0].PanOutput(ch0, left, right);
-        Channels[2].PanOutput(ch2, left, right);
+        Channels[0].PanOutput(ch0, sample);
+        Channels[2].PanOutput(ch2, sample);
 
-        if (!(Cnt & (1<<12))) Channels[1].PanOutput(ch1, left, right);
-        if (!(Cnt & (1<<13))) Channels[3].PanOutput(ch3, left, right);
+        if (!(Cnt & (1<<12))) Channels[1].PanOutput(ch1, sample);
+        if (!(Cnt & (1<<13))) Channels[3].PanOutput(ch3, sample);
 
         for (int i = 4; i < 16; i++)
         {
             SPUChannel* chan = &Channels[i];
 
             s32 channel = chan->DoRun();
-            chan->PanOutput(channel, left, right);
+            chan->PanOutput(channel, sample);
         }
 
         // sound capture
@@ -789,7 +793,7 @@ void SPU::Mix(u32 dummy)
 
         if (Capture[0].Cnt & (1<<7))
         {
-            s32 val = left;
+            s32 val = sample.l;
 
             val >>= 8;
             if      (val < -0x8000) val = -0x8000;
@@ -800,7 +804,7 @@ void SPU::Mix(u32 dummy)
 
         if (Capture[1].Cnt & (1<<7))
         {
-            s32 val = right;
+            s32 val = sample.r;
 
             val >>= 8;
             if      (val < -0x8000) val = -0x8000;
@@ -814,25 +818,25 @@ void SPU::Mix(u32 dummy)
         switch (Cnt & 0x0300)
         {
         case 0x0000: // left mixer
-            leftoutput = left;
+            output.l = sample.l;
             break;
         case 0x0100: // channel 1
             {
                 s32 pan = 128 - Channels[1].Pan;
-                leftoutput = ((s64)ch1 * pan) >> 10;
+                output.l = ((s64)ch1 * pan) >> 10;
             }
             break;
         case 0x0200: // channel 3
             {
                 s32 pan = 128 - Channels[3].Pan;
-                leftoutput = ((s64)ch3 * pan) >> 10;
+                output.l = ((s64)ch3 * pan) >> 10;
             }
             break;
         case 0x0300: // channel 1+3
             {
                 s32 pan1 = 128 - Channels[1].Pan;
                 s32 pan3 = 128 - Channels[3].Pan;
-                leftoutput = (((s64)ch1 * pan1) >> 10) + (((s64)ch3 * pan3) >> 10);
+                output.l = (((s64)ch1 * pan1) >> 10) + (((s64)ch3 * pan3) >> 10);
             }
             break;
         }
@@ -840,64 +844,63 @@ void SPU::Mix(u32 dummy)
         switch (Cnt & 0x0C00)
         {
         case 0x0000: // right mixer
-            rightoutput = right;
+            output.r = sample.r;
             break;
         case 0x0400: // channel 1
             {
                 s32 pan = Channels[1].Pan;
-                rightoutput = ((s64)ch1 * pan) >> 10;
+                output.r = ((s64)ch1 * pan) >> 10;
             }
             break;
         case 0x0800: // channel 3
             {
                 s32 pan = Channels[3].Pan;
-                rightoutput = ((s64)ch3 * pan) >> 10;
+                output.r = ((s64)ch3 * pan) >> 10;
             }
             break;
         case 0x0C00: // channel 1+3
             {
                 s32 pan1 = Channels[1].Pan;
                 s32 pan3 = Channels[3].Pan;
-                rightoutput = (((s64)ch1 * pan1) >> 10) + (((s64)ch3 * pan3) >> 10);
+                output.r = (((s64)ch1 * pan1) >> 10) + (((s64)ch3 * pan3) >> 10);
             }
             break;
         }
     }
 
-    leftoutput = ((s64)leftoutput * MasterVolume) >> 7;
-    rightoutput = ((s64)rightoutput * MasterVolume) >> 7;
+    output.l = ((s64)output.l * MasterVolume) >> 7;
+    output.r = ((s64)output.r * MasterVolume) >> 7;
 
-    leftoutput >>= 8;
-    rightoutput >>= 8;
+    output.l >>= 8;
+    output.r >>= 8;
 
     // Add SOUNDBIAS value
     // The value used by all commercial games is 0x200, so we subtract that so it won't offset the final sound output.
     if (ApplyBias)
     {
-        leftoutput += (Bias << 6) - 0x8000;
-        rightoutput += (Bias << 6) - 0x8000;
+        output.l += (Bias << 6) - 0x8000;
+        output.r += (Bias << 6) - 0x8000;
     }
 
-    if      (leftoutput < -0x8000) leftoutput = -0x8000;
-    else if (leftoutput > 0x7FFF)  leftoutput = 0x7FFF;
-    if      (rightoutput < -0x8000) rightoutput = -0x8000;
-    else if (rightoutput > 0x7FFF)  rightoutput = 0x7FFF;
+    if      (output.l < -0x8000) output.l = -0x8000;
+    else if (output.l > 0x7FFF)  output.l = 0x7FFF;
+    if      (output.r < -0x8000) output.r = -0x8000;
+    else if (output.r > 0x7FFF)  output.r = 0x7FFF;
 
     // The original DS and DS lite degrade the output from 16 to 10 bit before output
     if (Degrade10Bit)
     {
-        leftoutput &= 0xFFFFFFC0;
-        rightoutput &= 0xFFFFFFC0;
+        output.l &= 0xFFFFFFC0;
+        output.r &= 0xFFFFFFC0;
     }
 
     // OutputBufferFrame can never get full because it's
     // transfered to OutputBuffer at the end of the frame
     // FIXME: apparently this does happen!!!
-    if (OutputBackbufferWritePosition * 2 < OutputBufferSize - 1)
+    if (OutputBackBufferWritePosition < OutputBufferLen)
     {
-        OutputBackbuffer[OutputBackbufferWritePosition    ] = leftoutput >> 1;
-        OutputBackbuffer[OutputBackbufferWritePosition + 1] = rightoutput >> 1;
-        OutputBackbufferWritePosition += 2;
+        OutputBackBuffer[OutputBackBufferWritePosition] = {(s16)(output.l >> 1), (s16)(output.r >> 1)};
+        OutputBackBufferWritePosition++;
     }
 
     NDS.ScheduleEvent(Event_SPU, true, 1024, 0, 0);
@@ -906,33 +909,20 @@ void SPU::Mix(u32 dummy)
 void SPU::TransferOutput()
 {
     Platform::Mutex_Lock(AudioLock);
-    for (u32 i = 0; i < OutputBackbufferWritePosition; i += 2)
+    for (u32 i = 0; i < OutputBackBufferWritePosition; i++)
     {
-        OutputFrontBuffer[OutputFrontBufferWritePosition    ] = OutputBackbuffer[i   ];
-        OutputFrontBuffer[OutputFrontBufferWritePosition + 1] = OutputBackbuffer[i + 1];
+        OutputFrontBuffer[OutputFrontBufferWritePosition] = OutputBackBuffer[i];
+        OutputFrontBufferWritePosition++;
+        OutputFrontBufferWritePosition %= OutputBufferLen;
 
-        OutputFrontBufferWritePosition += 2;
-        OutputFrontBufferWritePosition &= OutputBufferSize*2-1;
         if (OutputFrontBufferWritePosition == OutputFrontBufferReadPosition)
         {
             // advance the read position too, to avoid losing the entire FIFO
-            OutputFrontBufferReadPosition += 2;
-            OutputFrontBufferReadPosition &= OutputBufferSize*2-1;
+            OutputFrontBufferReadPosition++;
+            OutputFrontBufferReadPosition %= OutputBufferLen;
         }
     }
-    OutputBackbufferWritePosition = 0;
-    Platform::Mutex_Unlock(AudioLock);;
-}
-
-void SPU::TrimOutput()
-{
-    Platform::Mutex_Lock(AudioLock);
-    const int halflimit = (OutputBufferSize / 2);
-
-    int readpos = OutputFrontBufferWritePosition - (halflimit*2);
-    if (readpos < 0) readpos += (OutputBufferSize*2);
-
-    OutputFrontBufferReadPosition = readpos;
+    OutputBackBufferWritePosition = 0;
     Platform::Mutex_Unlock(AudioLock);
 }
 
@@ -947,8 +937,8 @@ void SPU::DrainOutput()
 void SPU::InitOutput()
 {
     Platform::Mutex_Lock(AudioLock);
-    memset(OutputBackbuffer, 0, 2*OutputBufferSize*2);
-    memset(OutputFrontBuffer, 0, 2*OutputBufferSize*2);
+    memset(OutputBackBuffer, 0, sizeof(OutputBackBuffer));
+    memset(OutputFrontBuffer, 0, sizeof(OutputFrontBuffer));
     OutputFrontBufferReadPosition = 0;
     OutputFrontBufferWritePosition = 0;
     Platform::Mutex_Unlock(AudioLock);
@@ -962,65 +952,38 @@ int SPU::GetOutputSize() const
     if (OutputFrontBufferWritePosition >= OutputFrontBufferReadPosition)
         ret = OutputFrontBufferWritePosition - OutputFrontBufferReadPosition;
     else
-        ret = (OutputBufferSize*2) - OutputFrontBufferReadPosition + OutputFrontBufferWritePosition;
+        ret = OutputBufferLen - OutputFrontBufferReadPosition + OutputFrontBufferWritePosition;
 
-    ret >>= 1;
 
     Platform::Mutex_Unlock(AudioLock);
     return ret;
 }
 
-void SPU::Sync(bool wait)
-{
-    // this function is currently not used anywhere
-    // depending on the usage context the thread safety measures could be made
-    // a lot faster
-
-    // sync to audio output in case the core is running too fast
-    // * wait=true: wait until enough audio data has been played
-    // * wait=false: merely skip some audio data to avoid a FIFO overflow
-
-    const int halflimit = (OutputBufferSize / 2);
-
-    if (wait)
-    {
-        // TODO: less CPU-intensive wait?
-        while (GetOutputSize() > halflimit);
-    }
-    else if (GetOutputSize() > halflimit)
-    {
-        Platform::Mutex_Lock(AudioLock);
-
-        int readpos = OutputFrontBufferWritePosition - (halflimit*2);
-        if (readpos < 0) readpos += (OutputBufferSize*2);
-
-        OutputFrontBufferReadPosition = readpos;
-
-        Platform::Mutex_Unlock(AudioLock);
-    }
-}
-
+/**
+ * @returns num samples read
+ */
 int SPU::ReadOutput(s16* data, int samples)
 {
     Platform::Mutex_Lock(AudioLock);
     if (OutputFrontBufferReadPosition == OutputFrontBufferWritePosition)
     {
+        // no samples available
         Platform::Mutex_Unlock(AudioLock);
         return 0;
     }
 
     for (int i = 0; i < samples; i++)
     {
-        *data++ = OutputFrontBuffer[OutputFrontBufferReadPosition];
-        *data++ = OutputFrontBuffer[OutputFrontBufferReadPosition + 1];
+        *data++ = OutputFrontBuffer[OutputFrontBufferReadPosition].l;
+        *data++ = OutputFrontBuffer[OutputFrontBufferReadPosition].r;
 
-        OutputFrontBufferReadPosition += 2;
-        OutputFrontBufferReadPosition &= ((2*OutputBufferSize)-1);
+        OutputFrontBufferReadPosition++;
+        OutputFrontBufferReadPosition %= OutputBufferLen;
 
         if (OutputFrontBufferWritePosition == OutputFrontBufferReadPosition)
         {
             Platform::Mutex_Unlock(AudioLock);
-            return i+1;
+            return i + 1;
         }
     }
 

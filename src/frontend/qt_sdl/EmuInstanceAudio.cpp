@@ -29,11 +29,9 @@ using namespace melonDS;
 void EmuInstance::audioCallback(void* data, Uint8* stream, int len)
 {
     EmuInstance* inst = (EmuInstance*)data;
-    len /= (sizeof(s16) * 2);
 
-    s16 buf[1024*2];
     SDL_LockMutex(inst->audioSyncLock);
-    int num_in = inst->nds->SPU.ReadOutput((s16*)stream, len);
+    int num_in = inst->nds->SPU.ReadOutput((s16*)stream, len / sizeof(SPUSample<s16>));
     SDL_CondSignal(inst->audioSyncCond);
     SDL_UnlockMutex(inst->audioSyncLock);
 
