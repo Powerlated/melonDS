@@ -12,8 +12,8 @@
 
 struct Delta
 {
-    double t;
-    double dV;
+    float t;
+    float dV;
 };
 
 class MelonResampler
@@ -21,34 +21,36 @@ class MelonResampler
 public:
     MelonResampler(uint32_t outputBufferLen,
                    uint32_t irLen,
-                   double fsOut,
-                   double fCutoff,
-                   std::function<void(std::vector<double> &)> audioReadyCallback);
-    void AddSample(double t, double v);
-    const std::vector<double>& GenerateOutputBuffer();
+                   float fsOut,
+                   float fCutoff,
+                   std::function<void(std::vector<float> &)> audioReadyCallback);
+    void Reset();
+    void WalkBackTime(float t);
+    void AddSample(float t, float v);
+    const std::vector<float>& GenerateOutputBuffer();
     bool CanGenerateOutputBuffer();
 
 private:
     void GenerateLUT();
-    double SamplesToSeconds(double samples);
+    float SamplesToSeconds(float samples);
     double CausalScaledWindowedSinc(double t);
-    double CausalScaledWindowedSincLUT(double t);
+    float CausalScaledWindowedSincLUT(float t);
 
-    std::function<void(std::vector<double> &)> audioReadyCallback;
-    std::vector<double> lut;
+    std::function<void(std::vector<float> &)> audioReadyCallback;
+    std::vector<float> lut;
     std::deque<Delta> deltaDeque;
-    std::vector<double> outputBuffer;
+    std::vector<float> outputBuffer;
 
-    double fsOut;
-    double fCutoff;
+    float fsOut;
+    float fCutoff;
     uint32_t irLen;
     uint32_t outputBufferLen;
-    double windowedSincArea;
+    float windowedSincArea;
 
-    double lastT;
-    double lastV;
-    double thisBufferStartT;
-    double outV;
-    // A running compensation for lost low-order bits.
-    double c = 0.0;
+    float lastT;
+    float lastV;
+    float thisBufferStartT;
+    float outV;
+    // A running compensation for lost low-order bits during summation.
+    float c;
 };

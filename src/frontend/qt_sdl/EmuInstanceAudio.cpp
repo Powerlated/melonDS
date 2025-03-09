@@ -362,7 +362,7 @@ void EmuInstance::audioInit()
     whatIwant.freq = audioFreq;
     whatIwant.format = AUDIO_S16LSB;
     whatIwant.channels = 2;
-    whatIwant.samples = 1024;
+    whatIwant.samples = 512;
     whatIwant.callback = audioCallback;
     whatIwant.userdata = this;
     audioDevice = SDL_OpenAudioDevice(NULL, 0, &whatIwant, &whatIget, SDL_AUDIO_ALLOW_FREQUENCY_CHANGE);

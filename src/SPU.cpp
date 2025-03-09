@@ -68,7 +68,7 @@ const s16 SPUChannel::PSGTable[8][8] =
 const int RESAMPLER_BUF_LEN = 1024;
 const int RESAMPLER_IR_LEN = 32;
 const int RESAMPLER_OUT_FS = 48000; // Fs = frequency, sample (i.e. sample rate)
-const int RESAMPLER_CUTOFF = 24000; 
+const int RESAMPLER_CUTOFF = 16384; 
 
 SPU::SPU(melonDS::NDS& nds, AudioBitDepth bitdepth, AudioInterpolation interpolation) :
     NDS(nds),
@@ -132,6 +132,9 @@ void SPU::Reset()
 
     Capture[0].Reset();
     Capture[1].Reset();
+
+    ResamplerL.Reset();
+    ResamplerR.Reset();
     
     Cycles = 0;
 
@@ -845,6 +848,13 @@ void SPU::Run(u32 dummy)
 
     NDS.ScheduleEvent(Event_SPU, true, 1024, 0, 0);
     Cycles += 1024;
+
+    const int WalkBackInterval = 33554432;
+    if (Cycles >= WalkBackInterval) {
+        Cycles -= WalkBackInterval;
+        ResamplerL.WalkBackTime(WalkBackInterval / dsClockHz);
+        ResamplerR.WalkBackTime(WalkBackInterval / dsClockHz);
+    }
 }
 
 void SPU::TransferOutput()
