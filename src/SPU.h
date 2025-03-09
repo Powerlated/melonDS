@@ -21,6 +21,7 @@
 
 #include "Savestate.h"
 #include "Platform.h"
+#include "MelonResampler.h"
 
 namespace melonDS
 {
@@ -266,7 +267,11 @@ private:
     u32 OutputFrontBufferWritePosition = 0;
     u32 OutputFrontBufferReadPosition = 0;
 
+    MelonResampler ResamplerL, ResamplerR;
+
     Platform::Mutex* AudioLock;
+
+    u64 Cycles = 0;
 
     u16 Cnt = 0;
     u8 MasterVolume = 0;

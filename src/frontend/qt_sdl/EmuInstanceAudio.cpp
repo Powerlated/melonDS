@@ -37,7 +37,7 @@ void EmuInstance::audioCallback(void* data, Uint8* stream, int len)
 
     if ((num_in < 1) || inst->audioMuted)
     {
-        memset(stream, 0, len*sizeof(s16)*2);
+        memset(stream, 0, len);
         return;
     }
 }
