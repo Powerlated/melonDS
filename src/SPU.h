@@ -73,8 +73,9 @@ public:
     bool KeyOn = false;
     u32 Timer = 0;
     s32 Pos = 0;
-    s16 CurSample = 0;
+    s32 CurSample = 0;
     s32 CurVal = 0;
+    s32 PrevVal = 0;
     u16 NoiseVal = 0;
 
     s32 ADPCMVal = 0;
@@ -223,35 +224,7 @@ public:
     void Write32(u32 addr, u32 val);
 
 private:
-    template<u32 type> s32 RunChannelOfType(SPUChannel &c);
-
-    s32 RunChannel(SPUChannel &c)
-    {
-        s32 val;
-        switch ((c.Cnt >> 29) & 0x3)
-        {
-        case 0: val = RunChannelOfType<0>(c); break;
-        case 1: val = RunChannelOfType<1>(c); break;
-        case 2: val = RunChannelOfType<2>(c); break;
-        case 3:
-            if (c.Num >= 14)
-            {
-                val = RunChannelOfType<4>(c);
-                break;
-            }
-            else if (c.Num >= 8)
-            {
-                val = RunChannelOfType<3>(c);
-                break;
-            }
-            [[fallthrough]];
-        default:
-            val = 0;
-        }
-
-        c.CurVal = val;
-        return val;
-    }
+    s32 RunChannel(SPUChannel &c);
 
     static const u32 OutputBufferLen = 4096;
     melonDS::NDS& NDS;
@@ -266,7 +239,7 @@ private:
 
     Platform::Mutex* AudioLock;
 
-    u64 Cycles = 0;
+    u64 SpuCycles = 0;
 
     u16 Cnt = 0;
     u8 MasterVolume = 0;

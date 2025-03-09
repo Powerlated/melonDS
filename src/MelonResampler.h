@@ -47,6 +47,8 @@ public:
     void WalkBackTime(float t);
     void AddSampleL(float t, float v);
     void AddSampleR(float t, float v);
+    void AddDeltaL(float t, float v);
+    void AddDeltaR(float t, float v);
     const std::vector<Sample>& GenerateOutputBuffer();
     bool CanGenerateOutputBuffer();
 

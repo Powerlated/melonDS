@@ -72,7 +72,7 @@ void MelonResampler::WalkBackTime(float t)
 
 void MelonResampler::AddSampleL(float t, float v)
 {
-  assert(t >= lastT.l);
+  assert(t >= thisBufferStartT);
 
   deltaDeques[0].push_back({t, v - lastV.l});
   lastT.l = t;
@@ -81,11 +81,29 @@ void MelonResampler::AddSampleL(float t, float v)
 
 void MelonResampler::AddSampleR(float t, float v)
 {
-  assert(t >= lastT.r);
+  assert(t >= thisBufferStartT);
 
   deltaDeques[1].push_back({t, v - lastV.r});
   lastT.r = t;
   lastV.r = v;
+}
+
+void MelonResampler::AddDeltaL(float t, float dV)
+{
+  assert(t >= thisBufferStartT);
+
+  deltaDeques[0].push_back({t, dV});
+  lastT.l = t;
+  lastV.l += dV;
+}
+
+void MelonResampler::AddDeltaR(float t, float dV)
+{
+  assert(t >= thisBufferStartT);
+
+  deltaDeques[1].push_back({t, dV});
+  lastT.r = t;
+  lastV.r += dV;
 }
 
 bool MelonResampler::CanGenerateOutputBuffer()
