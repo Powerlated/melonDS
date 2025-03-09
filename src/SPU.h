@@ -36,11 +36,9 @@ enum class AudioBitDepth
 
 enum class AudioInterpolation
 {
-    None,
-    Linear,
-    Cosine,
-    Cubic,
-    SNESGaussian
+    Clean,    // Band-limited zero-order hold - DS-style crunchiness without the nasty aliasing.
+    Faithful, // Aliased zero-order hold - True to the hardware. Crunchiness + nasty aliasing.
+    Smooth    // Low-passed at the Fs/2 of the instrument sample - No crunchiness, no aliasing.
 };
 
 class SPUChannel
@@ -56,7 +54,7 @@ public:
 
     // audio interpolation is an improvement upon the original hardware
     // (which performs no interpolation)
-    AudioInterpolation InterpType = AudioInterpolation::None;
+    AudioInterpolation InterpType = AudioInterpolation::Clean;
 
     const u32 Num;
 

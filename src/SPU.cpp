@@ -610,16 +610,6 @@ s32 SPUChannel::Run()
     {
         Timer = TimerReload + (Timer - 0x10000);
 
-        // for optional interpolation: save previous samples
-        // the interpolated audio will be delayed by a couple samples,
-        // but it's easier to deal with this way
-        if ((type < 3) && (InterpType != AudioInterpolation::None))
-        {
-            PrevSample[2] = PrevSample[1];
-            PrevSample[1] = PrevSample[0];
-            PrevSample[0] = CurSample;
-        }
-
         switch (type)
         {
         case 0: NextSample_PCM8(); break;
@@ -631,48 +621,6 @@ s32 SPUChannel::Run()
     }
 
     s32 val = (s32)CurSample;
-
-    // interpolation (emulation improvement, not a hardware feature)
-    if ((type < 3) && (InterpType != AudioInterpolation::None))
-    {
-        s32 samplepos = ((Timer - TimerReload) * 0x100) / (0x10000 - TimerReload);
-        if (samplepos > 0xFF) samplepos = 0xFF;
-
-        switch (InterpType)
-        {
-        case AudioInterpolation::Linear:
-            val = ((val           * samplepos) +
-                   (PrevSample[0] * (0xFF-samplepos))) >> 8;
-            break;
-
-        case AudioInterpolation::Cosine:
-            val = ((val           * InterpCos[samplepos]) +
-                   (PrevSample[0] * InterpCos[0xFF-samplepos])) >> 14;
-            break;
-
-        case AudioInterpolation::Cubic:
-            val = ((PrevSample[2] * InterpCubic[samplepos][0]) +
-                   (PrevSample[1] * InterpCubic[samplepos][1]) +
-                   (PrevSample[0] * InterpCubic[samplepos][2]) +
-                   (val           * InterpCubic[samplepos][3])) >> 14;
-            break;
-
-        case AudioInterpolation::SNESGaussian: {
-                // Avoid clipping (from fullsnes)
-#define CLAMP(s) (std::clamp((s) >> 1, -0x3FFA, 0x3FF8))
-                s32 out =    (InterpSNESGauss[0x0FF - samplepos] * CLAMP(PrevSample[2]) >> 10);
-                out = out + ((InterpSNESGauss[0x1FF - samplepos] * CLAMP(PrevSample[1])) >> 10);
-                out = out + ((InterpSNESGauss[0x100 + samplepos] * CLAMP(PrevSample[0])) >> 10);
-                out = out + ((InterpSNESGauss[0x000 + samplepos] * CLAMP(val)) >> 10);
-                val = std::clamp(out, -0x8000, 0x7FFF);
-#undef CLAMP
-                break;
-            }
-
-        default:
-            break;
-        }
-    }
 
     val <<= VolumeShift;
     val *= Volume;
