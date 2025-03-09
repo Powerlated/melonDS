@@ -60,7 +60,7 @@ public:
 
     // audio interpolation is an improvement upon the original hardware
     // (which performs no interpolation)
-    AudioInterpolation InterpType = AudioInterpolation::Clean;
+    AudioInterpolation InterpolationType = AudioInterpolation::Clean;
 
     const u32 Num;
 
@@ -128,36 +128,6 @@ public:
     void NextSample_ADPCM();
     void NextSample_PSG();
     void NextSample_Noise();
-
-    template<u32 type> s32 Run();
-
-    s32 DoRun()
-    {
-        s32 val;
-        switch ((Cnt >> 29) & 0x3)
-        {
-        case 0: val = Run<0>(); break;
-        case 1: val = Run<1>(); break;
-        case 2: val = Run<2>(); break;
-        case 3:
-            if (Num >= 14)
-            {
-                val = Run<4>();
-                break;
-            }
-            else if (Num >= 8)
-            {
-                val = Run<3>();
-                break;
-            }
-            [[fallthrough]];
-        default:
-            val = 0;
-        }
-
-        CurVal = val;
-        return val;
-    }
 
     void MixIntoSampleWithPan(s32 in, SPUSample<s32> &out);
 
@@ -233,7 +203,6 @@ public:
 
     void SetPowerCnt(u32 val);
 
-    // 0=none 1=linear 2=cosine 3=cubic
     void SetInterpolation(AudioInterpolation type);
 
     void SetBias(u16 bias);
@@ -258,6 +227,36 @@ public:
     void Write32(u32 addr, u32 val);
 
 private:
+    template<u32 type> s32 RunChannelOfType(SPUChannel &c);
+
+    s32 RunChannel(SPUChannel &c)
+    {
+        s32 val;
+        switch ((c.Cnt >> 29) & 0x3)
+        {
+        case 0: val = RunChannelOfType<0>(c); break;
+        case 1: val = RunChannelOfType<1>(c); break;
+        case 2: val = RunChannelOfType<2>(c); break;
+        case 3:
+            if (c.Num >= 14)
+            {
+                val = RunChannelOfType<4>(c);
+                break;
+            }
+            else if (c.Num >= 8)
+            {
+                val = RunChannelOfType<3>(c);
+                break;
+            }
+            [[fallthrough]];
+        default:
+            val = 0;
+        }
+
+        c.CurVal = val;
+        return val;
+    }
+
     static const u32 OutputBufferLen = 4096;
     melonDS::NDS& NDS;
     SPUSample<s16> OutputBackBuffer[OutputBufferLen] {};
@@ -281,6 +280,8 @@ private:
 
     std::array<SPUChannel, 16> Channels;
     std::array<SPUCaptureUnit, 2> Capture;
+
+    AudioInterpolation InterpolationType;
 };
 
 }

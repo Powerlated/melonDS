@@ -106,6 +106,8 @@ SPU::SPU(melonDS::NDS& nds, AudioBitDepth bitdepth, AudioInterpolation interpola
 
     memset(OutputFrontBuffer, 0, sizeof(OutputFrontBuffer));
 
+    SetInterpolation(AudioInterpolation::Clean);
+
     OutputBackBufferWritePosition = 0;
     OutputFrontBufferReadPosition = 0;
     OutputFrontBufferWritePosition = 0;
@@ -176,8 +178,9 @@ void SPU::SetPowerCnt(u32 val)
 
 void SPU::SetInterpolation(AudioInterpolation type)
 {
+    InterpolationType = type;
     for (SPUChannel& channel : Channels)
-        channel.InterpType = type;
+        channel.InterpolationType = type;
 }
 
 void SPU::SetBias(u16 bias)
@@ -214,7 +217,7 @@ void SPU::SetDegrade10Bit(AudioBitDepth depth)
 SPUChannel::SPUChannel(u32 num, melonDS::NDS& nds, AudioInterpolation interpolation) :
     NDS(nds),
     Num(num),
-    InterpType(interpolation)
+    InterpolationType(interpolation)
 {
 }
 
@@ -490,42 +493,6 @@ void SPUChannel::NextSample_Noise()
     }
 }
 
-template<u32 type>
-s32 SPUChannel::Run()
-{
-    if (!(Cnt & (1<<31))) return 0;
-
-    if ((type < 3) && ((Length+LoopPos) < 16)) return 0;
-
-    if (KeyOn)
-    {
-        Start();
-        KeyOn = false;
-    }
-
-    Timer += 512; // 1 sample = 512 cycles at 16MHz
-
-    while (Timer >> 16)
-    {
-        Timer = TimerReload + (Timer - 0x10000);
-
-        switch (type)
-        {
-        case 0: NextSample_PCM8(); break;
-        case 1: NextSample_PCM16(); break;
-        case 2: NextSample_ADPCM(); break;
-        case 3: NextSample_PSG(); break;
-        case 4: NextSample_Noise(); break;
-        }
-    }
-
-    s32 val = (s32)CurSample;
-
-    val <<= VolumeShift;
-    val *= Volume;
-    return val;
-}
-
 void SPUChannel::MixIntoSampleWithPan(s32 in, SPUSample<s32>& sample)
 {
     sample.l += ((s64)in * (128-Pan)) >> 10;
@@ -760,16 +727,53 @@ SPUSample<s32> SPU::Mix() {
     return output;
 }
 
+
+template<u32 type>
+s32 SPU::RunChannelOfType(SPUChannel &c)
+{
+    if (!(c.Cnt & (1<<31))) return 0;
+
+    if ((type < 3) && ((c.Length+c.LoopPos) < 16)) return 0;
+
+    if (c.KeyOn)
+    {
+        c.Start();
+        c.KeyOn = false;
+    }
+
+    c.Timer += 512; // 1 sample = 512 cycles at 16MHz
+
+    while (c.Timer >> 16)
+    {
+        c.Timer = c.TimerReload + (c.Timer - 0x10000);
+
+        switch (type)
+        {
+        case 0: c.NextSample_PCM8(); break;
+        case 1: c.NextSample_PCM16(); break;
+        case 2: c.NextSample_ADPCM(); break;
+        case 3: c.NextSample_PSG(); break;
+        case 4: c.NextSample_Noise(); break;
+        }
+    }
+
+    s32 val = (s32)c.CurSample;
+
+    val <<= c.VolumeShift;
+    val *= c.Volume;
+    return val;
+}
+
 void SPU::Run(u32 dummy)
 {
     SPUSample<s32> sample{}, output{};
 
     if ((Cnt & (1<<15)) && (!dummy))
     {
-        s32 ch0 = Channels[0].DoRun();
-        s32 ch1 = Channels[1].DoRun();
-        s32 ch2 = Channels[2].DoRun();
-        s32 ch3 = Channels[3].DoRun();
+        s32 ch0 = RunChannel(Channels[0]);
+        s32 ch1 = RunChannel(Channels[1]);
+        s32 ch2 = RunChannel(Channels[2]);
+        s32 ch3 = RunChannel(Channels[3]);
 
         // TODO: addition from capture registers
         Channels[0].MixIntoSampleWithPan(ch0, sample);
@@ -782,7 +786,7 @@ void SPU::Run(u32 dummy)
         {
             SPUChannel* chan = &Channels[i];
 
-            s32 channel = chan->DoRun();
+            s32 channel = RunChannel(*chan);
             chan->MixIntoSampleWithPan(channel, sample);
         }
 
@@ -814,34 +818,43 @@ void SPU::Run(u32 dummy)
         output = Mix();
     }
 
-    const float dsClockHz = 33513982;
-    const float t = Cycles / dsClockHz;
+    if (InterpolationType == AudioInterpolation::Faithful) {
+        const float dsClockHz = 33513982;
+        const int WalkBackInterval = 33554432;
+        if (Cycles >= WalkBackInterval) {
+            Cycles -= WalkBackInterval;
+            ResamplerL.WalkBackTime(WalkBackInterval / dsClockHz);
+            ResamplerR.WalkBackTime(WalkBackInterval / dsClockHz);
+        }
 
-    ResamplerL.AddSample(t, (float)output.l);
-    ResamplerR.AddSample(t, (float)output.r);
+        const float t = Cycles / dsClockHz;
 
-    if (ResamplerL.CanGenerateOutputBuffer() && ResamplerR.CanGenerateOutputBuffer()) {
-        auto&outBufL = ResamplerL.GenerateOutputBuffer();
-        auto&outBufR = ResamplerR.GenerateOutputBuffer();
+        ResamplerL.AddSample(t, (float)output.l);
+        ResamplerR.AddSample(t, (float)output.r);
 
-        // compensate for gibbs phenomenon overshoot
-        const float GIBBS_COMPENSATION = 1.09;
+        while (ResamplerL.CanGenerateOutputBuffer() && ResamplerR.CanGenerateOutputBuffer()) {
+            auto&outBufL = ResamplerL.GenerateOutputBuffer();
+            auto&outBufR = ResamplerR.GenerateOutputBuffer();
 
-        for (int i = 0; i < outBufL.size(); i++) {
-            // OutputBufferFrame can never get full because it's
-            // transfered to OutputBuffer at the end of the frame
-            // FIXME: apparently this does happen!!!
-            if (OutputBackBufferWritePosition < OutputBufferLen)
-            {
-                auto l = (s32)(outBufL[i] / 2 / GIBBS_COMPENSATION);
-                auto r = (s32)(outBufR[i] / 2 / GIBBS_COMPENSATION);
-                l = std::clamp(l, -32768, 32767);
-                r = std::clamp(r, -32768, 32767);
-                OutputBackBuffer[OutputBackBufferWritePosition] = {
-                    (s16)(l), 
-                    (s16)(r)
-                };
-                OutputBackBufferWritePosition++;
+            // compensate for gibbs phenomenon overshoot
+            const float GIBBS_COMPENSATION = 1.09;
+
+            for (int i = 0; i < outBufL.size(); i++) {
+                // OutputBufferFrame can never get full because it's
+                // transfered to OutputBuffer at the end of the frame
+                // FIXME: apparently this does happen!!!
+                if (OutputBackBufferWritePosition < OutputBufferLen)
+                {
+                    auto l = (s32)(outBufL[i] / 2 / GIBBS_COMPENSATION);
+                    auto r = (s32)(outBufR[i] / 2 / GIBBS_COMPENSATION);
+                    l = std::clamp(l, -32768, 32767);
+                    r = std::clamp(r, -32768, 32767);
+                    OutputBackBuffer[OutputBackBufferWritePosition] = {
+                        (s16)(l), 
+                        (s16)(r)
+                    };
+                    OutputBackBufferWritePosition++;
+                }
             }
         }
     }
@@ -849,12 +862,6 @@ void SPU::Run(u32 dummy)
     NDS.ScheduleEvent(Event_SPU, true, 1024, 0, 0);
     Cycles += 1024;
 
-    const int WalkBackInterval = 33554432;
-    if (Cycles >= WalkBackInterval) {
-        Cycles -= WalkBackInterval;
-        ResamplerL.WalkBackTime(WalkBackInterval / dsClockHz);
-        ResamplerR.WalkBackTime(WalkBackInterval / dsClockHz);
-    }
 }
 
 void SPU::TransferOutput()
