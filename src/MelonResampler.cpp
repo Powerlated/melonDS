@@ -16,11 +16,11 @@ MelonResampler::MelonResampler(
       fCutoff(fCutoff),
       irLen(irLen),
       outputBufferLen(outputBufferLen),
-      lastT(0),
-      lastV(0),
+      lastT(Sample{}),
+      lastV(Sample{}),
       thisBufferStartT(0),
-      outV(0),
-      c(0)
+      outV(Sample{}),
+      c(Sample{})
 {
   assert(fCutoff <= fsOut / 2);
   outputBuffer.resize(outputBufferLen);
@@ -43,87 +43,124 @@ MelonResampler::MelonResampler(
   windowedSincArea = area * fsOut;
 }
 
-void MelonResampler::Reset() {
-  deltaDeque.clear();
+void MelonResampler::Reset()
+{
+  deltaDequeL.clear();
+  deltaDequeR.clear();
 
-  lastT = 0;
-  lastV = 0;
+  lastT = Sample{};
+  lastV = Sample{};
   thisBufferStartT = 0;
-  outV = 0;
-  c = 0;
+  outV = Sample{};
+  c = Sample{};
 }
 
-void MelonResampler::WalkBackTime(float t) {
-  for (auto &delta : deltaDeque) {
+void MelonResampler::WalkBackTime(float t)
+{
+  for (auto &delta : deltaDequeL)
+  {
+    delta.t -= t;
+  }
+  for (auto &delta : deltaDequeR)
+  {
     delta.t -= t;
   }
   lastT -= t;
   thisBufferStartT -= t;
 }
 
-void MelonResampler::AddSample(float t, float v)
+void MelonResampler::AddSampleL(float t, float v)
 {
-  assert(t >= lastT);
+  assert(t >= lastT.l);
 
-  deltaDeque.push_back({t, v - lastV});
-  lastT = t;
-  lastV = v;
+  deltaDequeL.push_back({t, v - lastV.l});
+  lastT.l = t;
+  lastV.l = v;
 }
 
-bool MelonResampler::CanGenerateOutputBuffer() {
-  return lastT > thisBufferStartT + SamplesToSeconds(outputBufferLen);
+void MelonResampler::AddSampleR(float t, float v)
+{
+  assert(t >= lastT.r);
+
+  deltaDequeR.push_back({t, v - lastV.r});
+  lastT.r = t;
+  lastV.r = v;
 }
 
-const std::vector<float>& MelonResampler::GenerateOutputBuffer()
+bool MelonResampler::CanGenerateOutputBuffer()
+{
+  float endOfThisBuffer = thisBufferStartT + SamplesToSeconds(outputBufferLen);
+  return lastT.l > endOfThisBuffer && lastT.r > endOfThisBuffer;
+}
+
+const std::vector<MelonResampler::Sample> &MelonResampler::GenerateOutputBuffer()
 {
   assert(CanGenerateOutputBuffer());
-  std::fill(outputBuffer.begin(), outputBuffer.end(), 0.0);
+  std::fill(outputBuffer.begin(), outputBuffer.end(), Sample{});
 
   float thisBufferEndT = thisBufferStartT + SamplesToSeconds(outputBufferLen);
-  for (const auto &delta : deltaDeque)
+
+  auto deques = {&deltaDequeL, &deltaDequeR};
+  for (const auto &deque : deques)
   {
-    // The next delta is past the end of the buffer, we are done for now
-    if (delta.t > thisBufferEndT)
+    for (const auto &delta : *deque)
     {
-      break;
-    }
+      // The next delta is past the end of the buffer, we are done for now
+      if (delta.t > thisBufferEndT)
+      {
+        break;
+      }
 
-    // when does this delta's influence start?
-    int32_t i = (delta.t - thisBufferStartT) / SamplesToSeconds(1);
+      // when does this delta's influence start?
+      int32_t i = (delta.t - thisBufferStartT) / SamplesToSeconds(1);
 
-    // when does this delta's influence end?
-    int32_t iEnd = i + irLen;
-    if (iEnd > outputBufferLen)
-    {
-      iEnd = outputBufferLen;
-    }
+      // when does this delta's influence end?
+      int32_t iEnd = i + irLen;
+      if (iEnd > outputBufferLen)
+      {
+        iEnd = outputBufferLen;
+      }
 
-    if (i < 0)
-    {
-      i = 0;
-    }
+      if (i < 0)
+      {
+        i = 0;
+      }
 
-    for (; i < iEnd; i++)
-    {
-      float bufT = thisBufferStartT + i * SamplesToSeconds(1);
-      float irT = bufT - delta.t;
-      outputBuffer.at(i) += delta.dV * CausalScaledWindowedSincLUT(irT);
+      for (; i < iEnd; i++)
+      {
+        float bufT = thisBufferStartT + i * SamplesToSeconds(1);
+        float irT = bufT - delta.t;
+        float value = delta.dV * CausalScaledWindowedSincLUT(irT);
+        if (deque == &deltaDequeL)
+        {
+          outputBuffer.at(i).l += value;
+        }
+        else
+        {
+          outputBuffer.at(i).r += value;
+        }
+      }
     }
   }
 
   // Remove deltas that won't affect the next buffer
-  while (deltaDeque.front().t + SamplesToSeconds(irLen) < thisBufferEndT)
+  while (deltaDequeL.front().t + SamplesToSeconds(irLen) < thisBufferEndT)
   {
-    deltaDeque.pop_front();
+    deltaDequeL.pop_front();
+  }
+
+  while (deltaDequeR.front().t + SamplesToSeconds(irLen) < thisBufferEndT)
+  {
+    deltaDequeR.pop_front();
   }
 
   // Integrate the output buffer, using Kahan summation algorithm
   for (uint32_t i = 0; i < outputBufferLen; i++)
   {
-    float a = outputBuffer[i] - c;
-    float b = outV + a;
+    Sample a = outputBuffer[i] - c;
+    Sample b = outV + a;
     c = (b - outV) - a;
-    outV = b; 
+    outV = b;
     outputBuffer[i] = outV / windowedSincArea;
   }
 
@@ -175,16 +212,19 @@ float MelonResampler::CausalScaledWindowedSincLUT(float t)
 {
   float i = t * (LUT_SIZE - 1) / LUT_T_END;
   // lerp
-  int i0 = (int) i;
+  int i0 = (int)i;
   int i1 = i0 + 1;
   float f = i - i0;
-  if (i0 < 0) return 0;
+  if (i0 < 0)
+    return 0;
   return (1 - f) * lut.at(i0) + f * lut.at(i1);
 }
 
-void MelonResampler::GenerateLUT() {
+void MelonResampler::GenerateLUT()
+{
   lut.resize(LUT_SIZE + 2);
-  for (int i = 0; i < LUT_SIZE; i++) {
+  for (int i = 0; i < LUT_SIZE; i++)
+  {
     double t = i * LUT_T_END / (LUT_SIZE - 1);
     // printf("%f\n", t);
     lut.at(i) = CausalScaledWindowedSinc(t);

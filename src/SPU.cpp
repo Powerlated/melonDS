@@ -97,8 +97,7 @@ SPU::SPU(melonDS::NDS& nds, AudioBitDepth bitdepth, AudioInterpolation interpola
     },
     AudioLock(Platform::Mutex_Create()),
     Degrade10Bit(bitdepth == AudioBitDepth::_10Bit || (nds.ConsoleType == 1 && bitdepth == AudioBitDepth::Auto)),
-    ResamplerL(MelonResampler(RESAMPLER_BUF_LEN, RESAMPLER_IR_LEN, RESAMPLER_OUT_FS, RESAMPLER_CUTOFF, nullptr)),
-    ResamplerR(MelonResampler(RESAMPLER_BUF_LEN, RESAMPLER_IR_LEN, RESAMPLER_OUT_FS, RESAMPLER_CUTOFF, nullptr))
+    Resampler(MelonResampler(RESAMPLER_BUF_LEN, RESAMPLER_IR_LEN, RESAMPLER_OUT_FS, RESAMPLER_CUTOFF, nullptr))
 {
     NDS.RegisterEventFuncs(Event_SPU, this, {MakeEventThunk(SPU, Run)});
 
@@ -134,8 +133,7 @@ void SPU::Reset()
     Capture[0].Reset();
     Capture[1].Reset();
 
-    ResamplerL.Reset();
-    ResamplerR.Reset();
+    Resampler.Reset();
     
     Cycles = 0;
 
@@ -819,30 +817,28 @@ void SPU::Run(u32 dummy)
         const int WalkBackInterval = 33554432;
         if (Cycles >= WalkBackInterval) {
             Cycles -= WalkBackInterval;
-            ResamplerL.WalkBackTime(WalkBackInterval / dsClockHz);
-            ResamplerR.WalkBackTime(WalkBackInterval / dsClockHz);
+            Resampler.WalkBackTime(WalkBackInterval / dsClockHz);
         }
 
         const float t = Cycles / dsClockHz;
 
-        ResamplerL.AddSample(t, (float)output.l);
-        ResamplerR.AddSample(t, (float)output.r);
+        Resampler.AddSampleL(t, (float)output.l);
+        Resampler.AddSampleR(t, (float)output.r);
 
-        while (ResamplerL.CanGenerateOutputBuffer() && ResamplerR.CanGenerateOutputBuffer()) {
-            auto&outBufL = ResamplerL.GenerateOutputBuffer();
-            auto&outBufR = ResamplerR.GenerateOutputBuffer();
+        while (Resampler.CanGenerateOutputBuffer()) {
+            auto& outBuf = Resampler.GenerateOutputBuffer();
 
             // compensate for gibbs phenomenon overshoot
             const float GIBBS_COMPENSATION = 1.09;
 
-            for (int i = 0; i < outBufL.size(); i++) {
+            for (int i = 0; i < outBuf.size(); i++) {
                 // OutputBufferFrame can never get full because it's
                 // transfered to OutputBuffer at the end of the frame
                 // FIXME: apparently this does happen!!!
                 if (OutputBackBufferWritePosition < OutputBufferLen)
                 {
-                    auto l = (s32)(outBufL[i] / 2 / GIBBS_COMPENSATION);
-                    auto r = (s32)(outBufR[i] / 2 / GIBBS_COMPENSATION);
+                    auto l = (s32)(outBuf[i].l / 2 / GIBBS_COMPENSATION);
+                    auto r = (s32)(outBuf[i].r / 2 / GIBBS_COMPENSATION);
                     l = std::clamp(l, -32768, 32767);
                     r = std::clamp(r, -32768, 32767);
                     OutputBackBuffer[OutputBackBufferWritePosition] = {

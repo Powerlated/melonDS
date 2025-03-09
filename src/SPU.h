@@ -262,7 +262,7 @@ private:
     u32 OutputFrontBufferWritePosition = 0;
     u32 OutputFrontBufferReadPosition = 0;
 
-    MelonResampler ResamplerL, ResamplerR;
+    MelonResampler Resampler;
 
     Platform::Mutex* AudioLock;
 

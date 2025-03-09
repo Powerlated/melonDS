@@ -10,15 +10,34 @@
 #define M_PI 3.14159265358979323846264338327950288
 #endif
 
-struct Delta
-{
-    float t;
-    float dV;
-};
-
 class MelonResampler
 {
 public:
+    struct Delta
+    {
+        float t;
+        float dV;
+    };
+
+    struct Sample {
+        float l, r;
+        Sample operator+(const Sample &rhs) const {
+            return { l + rhs.l, r + rhs.r };
+        }
+        Sample operator-(const Sample &rhs) const {
+            return { l - rhs.l, r - rhs.r };
+        }
+        Sample operator/(const Sample &rhs) const {
+            return { l / rhs.l, r / rhs.r };
+        }
+        Sample operator/(const float &rhs) const {
+            return { l / rhs, r / rhs };
+        }
+        Sample operator-=(const float &rhs) {
+            return { l -= rhs, r -= rhs };
+        }
+    };
+
     MelonResampler(uint32_t outputBufferLen,
                    uint32_t irLen,
                    float fsOut,
@@ -26,8 +45,9 @@ public:
                    std::function<void(std::vector<float> &)> audioReadyCallback);
     void Reset();
     void WalkBackTime(float t);
-    void AddSample(float t, float v);
-    const std::vector<float>& GenerateOutputBuffer();
+    void AddSampleL(float t, float v);
+    void AddSampleR(float t, float v);
+    const std::vector<Sample>& GenerateOutputBuffer();
     bool CanGenerateOutputBuffer();
 
 private:
@@ -38,8 +58,8 @@ private:
 
     std::function<void(std::vector<float> &)> audioReadyCallback;
     std::vector<float> lut;
-    std::deque<Delta> deltaDeque;
-    std::vector<float> outputBuffer;
+    std::deque<Delta> deltaDequeL, deltaDequeR;
+    std::vector<Sample> outputBuffer;
 
     float fsOut;
     float fCutoff;
@@ -47,10 +67,10 @@ private:
     uint32_t outputBufferLen;
     float windowedSincArea;
 
-    float lastT;
-    float lastV;
+    Sample lastT;
+    Sample lastV;
     float thisBufferStartT;
-    float outV;
+    Sample outV;
     // A running compensation for lost low-order bits during summation.
-    float c;
+    Sample c;
 };
