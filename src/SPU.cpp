@@ -869,7 +869,11 @@ void SPU::Run(u32 dummy)
     InterpCycles += 512;
     const float t = InterpCycles * SPU_CYCLE_T;
     if (InterpolationType == AudioInterpolation::Faithful) {
-        SPUSample<s32> output = Mix();
+        SPUSample<s32> output{};
+
+        if ((Cnt & (1<<15))) {
+            output = Mix();
+        }
 
         Resampler.AddSampleL(0, t, (float)output.l);
         Resampler.AddSampleR(0, t, (float)output.r);
