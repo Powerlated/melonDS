@@ -75,7 +75,6 @@ public:
     s32 Pos = 0;
     s32 CurSample = 0;
     s32 CurVal = 0;
-    s32 PrevVal = 0;
     u16 NoiseVal = 0;
 
     s32 ADPCMVal = 0;

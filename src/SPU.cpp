@@ -257,7 +257,6 @@ void SPUChannel::DoSavestate(Savestate* file)
 
     file->Var16((u16*)&CurSample);
     file->Var32((u32*)&CurVal);
-    file->Var32((u32*)&PrevVal);
     file->Var16(&NoiseVal);
 
     file->Var32((u32*)&ADPCMVal);
@@ -340,7 +339,6 @@ void SPUChannel::Start()
     NoiseVal = 0x7FFF;
     CurSample = 0;
     CurVal = 0;
-    PrevVal = 0;
 
     FIFOReadPos = 0;
     FIFOWritePos = 0;
@@ -756,8 +754,10 @@ s32 SPU::RunChannel(SPUChannel &c)
         (!(c.Cnt & (1<<31))) || 
         ((type < 3) && ((c.Length+c.LoopPos) < 16))
     ) {
-        Resampler.AddSampleL(c.Num, InterpCycles / spuClockHz,0);
-        Resampler.AddSampleR(c.Num, InterpCycles / spuClockHz,0);
+        if (InterpolationType == AudioInterpolation::Clean) {
+            Resampler.AddSampleL(c.Num, InterpCycles / spuClockHz,0);
+            Resampler.AddSampleR(c.Num, InterpCycles / spuClockHz,0);
+        }
         return 0;
     }
 
@@ -765,6 +765,11 @@ s32 SPU::RunChannel(SPUChannel &c)
     {
         c.Start();
         c.KeyOn = false;
+
+        if (InterpolationType == AudioInterpolation::Clean) {
+            Resampler.AddSampleL(c.Num, InterpCycles / spuClockHz,0);
+            Resampler.AddSampleR(c.Num, InterpCycles / spuClockHz,0);
+        }
     }
 
     // At what cycle is this timer gonna HIT???
@@ -786,8 +791,6 @@ s32 SPU::RunChannel(SPUChannel &c)
         c.CurVal <<= c.VolumeShift;
         c.CurVal *= c.Volume;
         
-        c.PrevVal = c.CurVal;
-
         if (InterpolationType == AudioInterpolation::Clean) {
             SPUSample<s32> sample{};
             c.MixIntoSampleWithPan(c.CurVal, sample);
@@ -858,6 +861,7 @@ void SPU::Run(u32 dummy)
         }
     }
 
+    InterpCycles += 512;
     const float t = InterpCycles / spuClockHz;
     if (InterpolationType == AudioInterpolation::Faithful) {
         SPUSample<s32> output = Mix();
@@ -876,8 +880,8 @@ void SPU::Run(u32 dummy)
     while (Resampler.CanGenerateOutputBuffer()) {
         auto& outBuf = Resampler.GenerateOutputBuffer();
 
-        // compensate for gibbs phenomenon overshoot
-        const float GIBBS_COMPENSATION = 1.09;
+        // compensate for sinc interpolation overshoot
+        const float OVERSHOOT_COMPENSATION = 1.1;
 
         for (int i = 0; i < outBuf.size(); i++) {
             // OutputBufferFrame can never get full because it's
@@ -885,8 +889,9 @@ void SPU::Run(u32 dummy)
             // FIXME: apparently this does happen!!!
             if (OutputBackBufferWritePosition < OutputBufferLen)
             {
-                auto l = (s32)(outBuf[i].l / 2 / GIBBS_COMPENSATION);
-                auto r = (s32)(outBuf[i].r / 2 / GIBBS_COMPENSATION);
+                auto l = (s32)(outBuf[i].l / 2 / OVERSHOOT_COMPENSATION);
+                auto r = (s32)(outBuf[i].r / 2 / OVERSHOOT_COMPENSATION);
+                // TODO: there is probably still clipping happening here!!
                 l = std::clamp(l, -32768, 32767);
                 r = std::clamp(r, -32768, 32767);
                 OutputBackBuffer[OutputBackBufferWritePosition] = {
@@ -899,8 +904,6 @@ void SPU::Run(u32 dummy)
     }
 
     NDS.ScheduleEvent(Event_SPU, true, 1024, 0, 0);
-    InterpCycles += 512;
-
 }
 
 void SPU::TransferOutput()
