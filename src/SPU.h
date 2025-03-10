@@ -59,17 +59,17 @@ public:
     static const s16 PSGTable[8][8];
 
     const u32 Num;
-
+    
     u32 Cnt = 0;
     u32 SrcAddr = 0;
     u16 TimerReload = 0;
     u32 LoopPos = 0;
     u32 Length = 0;
-
+    
     u8 Volume = 0;
     u8 VolumeShift = 0;
     u8 Pan = 0;
-
+    
     bool KeyOn = false;
     u32 Timer = 0;
     s32 Pos = 0;
@@ -82,12 +82,15 @@ public:
     s32 ADPCMValLoop = 0;
     s32 ADPCMIndexLoop = 0;
     u8 ADPCMCurByte = 0;
-
+    
     u32 FIFO[8] {};
     u32 FIFOReadPos = 0;
     u32 FIFOWritePos = 0;
     u32 FIFOReadOffset = 0;
     u32 FIFOLevel = 0;
+
+    float CleanMixGainL = 0;
+    float CleanMixGainR = 0;
 
     void FIFO_BufferData();
     template<typename T> T FIFO_ReadData();
@@ -214,7 +217,8 @@ public:
     int GetOutputSize() const;
     int ReadOutput(s16* data, int samples);
     void TransferOutput();
-
+    
+    void SetCnt(u16 cnt);
     u8 Read8(u32 addr);
     u16 Read16(u32 addr);
     u32 Read32(u32 addr);
@@ -234,10 +238,9 @@ private:
     u32 OutputFrontBufferWritePosition = 0;
     u32 OutputFrontBufferReadPosition = 0;
 
-    MelonResampler Resampler;
-
     Platform::Mutex* AudioLock;
-
+    
+    MelonResampler Resampler;
     u64 InterpCycles = 0;
 
     u16 Cnt = 0;

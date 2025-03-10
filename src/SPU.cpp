@@ -70,7 +70,7 @@ const int RESAMPLER_IR_LEN = 32;
 const int RESAMPLER_OUT_FS = 32768; // Fs = frequency, sample (i.e. sample rate)
 const int RESAMPLER_CUTOFF = 16384; 
 
-const float spuClockHz = 33513982 / 2;
+const float SPU_CYCLE_T = 1.0 / (33513982 / 2);
 
 SPU::SPU(melonDS::NDS& nds, AudioBitDepth bitdepth, AudioInterpolation interpolation) :
     NDS(nds),
@@ -125,7 +125,7 @@ void SPU::Reset()
 {
     InitOutput();
 
-    Cnt = 0;
+    SetCnt(0);
     MasterVolume = 0;
     Bias = 0;
 
@@ -178,8 +178,8 @@ void SPU::SetInterpolation(AudioInterpolation type)
 {
     InterpolationType = type;
     for (int i= 0; i < 16; i++) {
-        Resampler.AddSampleL(i, InterpCycles / spuClockHz, 0);
-        Resampler.AddSampleR(i, InterpCycles / spuClockHz, 0);
+        Resampler.AddSampleL(i, InterpCycles * SPU_CYCLE_T, 0);
+        Resampler.AddSampleR(i, InterpCycles * SPU_CYCLE_T, 0);
     }
 }
 
@@ -270,6 +270,9 @@ void SPUChannel::DoSavestate(Savestate* file)
     file->Var32(&FIFOReadOffset);
     file->Var32(&FIFOLevel);
     file->VarArray(FIFO, sizeof(FIFO));
+
+    file->Var32((u32*)&CleanMixGainL);
+    file->Var32((u32*)&CleanMixGainR);
 }
 
 void SPUChannel::FIFO_BufferData()
@@ -755,8 +758,8 @@ s32 SPU::RunChannel(SPUChannel &c)
         ((type < 3) && ((c.Length+c.LoopPos) < 16))
     ) {
         if (InterpolationType == AudioInterpolation::Clean) {
-            Resampler.AddSampleL(c.Num, InterpCycles / spuClockHz,0);
-            Resampler.AddSampleR(c.Num, InterpCycles / spuClockHz,0);
+            Resampler.AddSampleL(c.Num, InterpCycles * SPU_CYCLE_T,0);
+            Resampler.AddSampleR(c.Num, InterpCycles * SPU_CYCLE_T,0);
         }
         return 0;
     }
@@ -767,8 +770,8 @@ s32 SPU::RunChannel(SPUChannel &c)
         c.KeyOn = false;
 
         if (InterpolationType == AudioInterpolation::Clean) {
-            Resampler.AddSampleL(c.Num, InterpCycles / spuClockHz,0);
-            Resampler.AddSampleR(c.Num, InterpCycles / spuClockHz,0);
+            Resampler.AddSampleL(c.Num, InterpCycles * SPU_CYCLE_T,0);
+            Resampler.AddSampleR(c.Num, InterpCycles * SPU_CYCLE_T,0);
         }
     }
 
@@ -786,19 +789,21 @@ s32 SPU::RunChannel(SPUChannel &c)
             case 4: c.NextSample_Noise(); break;
         }
         
-        c.CurVal = (s32)c.CurSample;
-        
-        c.CurVal <<= c.VolumeShift;
-        c.CurVal *= c.Volume;
+        c.CurVal = ((s32)c.CurSample << c.VolumeShift) * c.Volume;
         
         if (InterpolationType == AudioInterpolation::Clean) {
-            SPUSample<s32> sample{};
-            c.MixIntoSampleWithPan(c.CurVal, sample);
+            float scalingFactor = MasterVolume * (1 / 128.0 / 256.0 / 1024.0);
+
+            // All bitshifts converted to divisions for maximum hifi
+            SPUSample<float> sample{
+                .l = ((s64)c.CurVal * (128-c.Pan)) * scalingFactor * c.CleanMixGainL,
+                .r = ((s64)c.CurVal * c.Pan) * scalingFactor * c.CleanMixGainR,    
+            };
             
-            const float t = cycle / spuClockHz;
+            const float t = cycle * SPU_CYCLE_T;
             
-            Resampler.AddSampleL(c.Num, t, sample.l / 256.0 * MasterVolume / 128.0);
-            Resampler.AddSampleR(c.Num, t, sample.r / 256.0 * MasterVolume / 128.0);
+            Resampler.AddSampleL(c.Num, t, sample.l);
+            Resampler.AddSampleR(c.Num, t, sample.r);
         }
         
         c.Timer = c.TimerReload + (c.Timer - 0x10000);
@@ -862,26 +867,25 @@ void SPU::Run(u32 dummy)
     }
 
     InterpCycles += 512;
-    const float t = InterpCycles / spuClockHz;
+    const float t = InterpCycles * SPU_CYCLE_T;
     if (InterpolationType == AudioInterpolation::Faithful) {
         SPUSample<s32> output = Mix();
 
         Resampler.AddSampleL(0, t, (float)output.l);
         Resampler.AddSampleR(0, t, (float)output.r);
     }
-    
-    const float spuClockHz = 33513982 / 2;
-    const int WalkBackInterval = 33513982 / 2;
-    if (InterpCycles >= WalkBackInterval) {
-        InterpCycles -= WalkBackInterval;
-        Resampler.WalkBackTime(WalkBackInterval / spuClockHz);
-    }
 
     while (Resampler.CanGenerateOutputBuffer()) {
+        const int WalkBackInterval = 33513982 / 2;
+        if (InterpCycles >= WalkBackInterval) {
+            InterpCycles -= WalkBackInterval;
+            Resampler.WalkBackTime(WalkBackInterval * SPU_CYCLE_T);
+        }
+        
         auto& outBuf = Resampler.GenerateOutputBuffer();
 
         // compensate for sinc interpolation overshoot
-        const float OVERSHOOT_COMPENSATION = 1.1;
+        const float OVERSHOOT_COMPENSATION = 0.9;
 
         for (int i = 0; i < outBuf.size(); i++) {
             // OutputBufferFrame can never get full because it's
@@ -889,8 +893,8 @@ void SPU::Run(u32 dummy)
             // FIXME: apparently this does happen!!!
             if (OutputBackBufferWritePosition < OutputBufferLen)
             {
-                auto l = (s32)(outBuf[i].l / 2 / OVERSHOOT_COMPENSATION);
-                auto r = (s32)(outBuf[i].r / 2 / OVERSHOOT_COMPENSATION);
+                auto l = (s32)(outBuf[i].l * 0.5 * OVERSHOOT_COMPENSATION);
+                auto r = (s32)(outBuf[i].r * 0.5 * OVERSHOOT_COMPENSATION);
                 // TODO: there is probably still clipping happening here!!
                 l = std::clamp(l, -32768, 32767);
                 r = std::clamp(r, -32768, 32767);
@@ -991,6 +995,77 @@ int SPU::ReadOutput(s16* data, int samples)
     return samples;
 }
 
+void SPU::SetCnt(u16 cnt) {
+    Cnt = cnt;
+
+    switch (Cnt & 0x0300)
+    {
+        case 0x0000: // left mixer
+            for (auto& c : Channels) {
+                c.CleanMixGainL = 1.0;
+            }
+            if (!(Cnt & (1<<12))) {
+                Channels[1].CleanMixGainL = 0;
+            }
+            if (!(Cnt & (1<<13))) {
+                Channels[3].CleanMixGainL = 0;
+            }
+            break;
+        case 0x0100: // channel 1
+            for (auto& c : Channels) {
+                c.CleanMixGainL = 0.0;
+            }
+            Channels[1].CleanMixGainL = 1.0;
+            break;
+        case 0x0200: // channel 3
+            for (auto& c : Channels) {
+                c.CleanMixGainL = 0.0;
+            }
+            Channels[3].CleanMixGainL = 1.0;
+            break;
+        case 0x0300: // channel 1+3
+            for (auto& c : Channels) {
+                c.CleanMixGainL = 0.0;
+            }
+            Channels[1].CleanMixGainL = 1.0;
+            Channels[3].CleanMixGainL = 1.0;
+            break;
+    }
+
+    switch (Cnt & 0x0C00)
+    {
+        case 0x0000: // right mixer
+            for (auto& c : Channels) {
+                c.CleanMixGainR = 1.0;
+            }
+            if (!(Cnt & (1<<12))) {
+                Channels[1].CleanMixGainR = 0;
+            }
+            if (!(Cnt & (1<<13))) {
+                Channels[3].CleanMixGainR = 0;
+            }
+            break;
+        case 0x0400: // channel 1
+            for (auto& c : Channels) {
+                c.CleanMixGainR = 0.0;
+            }
+            Channels[1].CleanMixGainR = 1.0;
+            break;
+        case 0x0800: // channel 3
+            for (auto& c : Channels) {
+                c.CleanMixGainR = 0.0;
+            }
+            Channels[3].CleanMixGainR = 1.0;
+            break;
+        case 0x0C00: // channel 1+3
+            for (auto& c : Channels) {
+                c.CleanMixGainR = 0.0;
+            }
+            Channels[1].CleanMixGainR = 1.0;
+            Channels[3].CleanMixGainR = 1.0;
+            break;
+    }
+}
 
 u8 SPU::Read8(u32 addr)
 {
@@ -1097,9 +1172,10 @@ void SPU::Write8(u32 addr, u8 val)
         switch (addr)
         {
         case 0x04000500:
-            Cnt = (Cnt & 0xBF00) | (val & 0x7F);
+            SetCnt((Cnt & 0xBF00) | (val & 0x7F));
             MasterVolume = Cnt & 0x7F;
             if (MasterVolume == 127) MasterVolume++;
+            
             return;
         case 0x04000501:
             Cnt = (Cnt & 0x007F) | ((val & 0xBF) << 8);
@@ -1145,7 +1221,7 @@ void SPU::Write16(u32 addr, u16 val)
         switch (addr)
         {
         case 0x04000500:
-            Cnt = val & 0xBF7F;
+            SetCnt(val & 0xBF7F);
             MasterVolume = Cnt & 0x7F;
             if (MasterVolume == 127) MasterVolume++;
             return;
@@ -1193,7 +1269,7 @@ void SPU::Write32(u32 addr, u32 val)
         switch (addr)
         {
         case 0x04000500:
-            Cnt = val & 0xBF7F;
+            SetCnt(val & 0xBF7F);
             MasterVolume = Cnt & 0x7F;
             if (MasterVolume == 127) MasterVolume++;
             return;
