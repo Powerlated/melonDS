@@ -67,8 +67,10 @@ const s16 SPUChannel::PSGTable[8][8] =
 
 const int RESAMPLER_BUF_LEN = 1024;
 const int RESAMPLER_IR_LEN = 32;
-const int RESAMPLER_OUT_FS = 48000; // Fs = frequency, sample (i.e. sample rate)
+const int RESAMPLER_OUT_FS = 32768; // Fs = frequency, sample (i.e. sample rate)
 const int RESAMPLER_CUTOFF = 16384; 
+
+const float spuClockHz = 33513982 / 2;
 
 SPU::SPU(melonDS::NDS& nds, AudioBitDepth bitdepth, AudioInterpolation interpolation) :
     NDS(nds),
@@ -134,8 +136,7 @@ void SPU::Reset()
     Capture[1].Reset();
 
     Resampler.Reset();
-    
-    SpuCycles = 0;
+    InterpCycles = 0;
 
     NDS.ScheduleEvent(Event_SPU, false, 1024, 0, 0);
 }
@@ -176,6 +177,8 @@ void SPU::SetPowerCnt(u32 val)
 void SPU::SetInterpolation(AudioInterpolation type)
 {
     InterpolationType = type;
+    Resampler.Reset();
+    InterpCycles = 0;
 }
 
 void SPU::SetBias(u16 bias)
@@ -747,9 +750,14 @@ s32 SPU::RunChannel(SPUChannel &c)
         type = 0;
     }
 
-    if (!(c.Cnt & (1<<31))) return 0;
-
-    if ((type < 3) && ((c.Length+c.LoopPos) < 16)) return 0;
+    if (
+        (!(c.Cnt & (1<<31))) || 
+        ((type < 3) && ((c.Length+c.LoopPos) < 16))
+    ) {
+        Resampler.AddSampleL(c.Num, InterpCycles / spuClockHz,0);
+        Resampler.AddSampleR(c.Num, InterpCycles / spuClockHz,0);
+        return 0;
+    }
 
     if (c.KeyOn)
     {
@@ -757,9 +765,9 @@ s32 SPU::RunChannel(SPUChannel &c)
         c.KeyOn = false;
     }
 
+    // At what cycle is this timer gonna HIT???
+    u64 cycle = InterpCycles + (0x10000 - c.Timer);
     c.Timer += 512; // 1 sample = 512 cycles at 16MHz
-
-    u64 cycle = SpuCycles + c.Timer % 512;
     while (c.Timer >> 16)
     {
         switch (type)
@@ -771,17 +779,6 @@ s32 SPU::RunChannel(SPUChannel &c)
             case 4: c.NextSample_Noise(); break;
         }
         
-        if (InterpolationType == AudioInterpolation::Clean) {
-            SPUSample<s32> mix = Mix();
-            
-            const float spuClockHz = 33513982 / 2;
-            const float t = cycle / spuClockHz;
-            
-            SPUSample<s32> preResample{};
-            Resampler.AddSampleL(t, (float)mix.l);
-            Resampler.AddSampleR(t, (float)mix.r);
-        }
-        
         c.CurVal = (s32)c.CurSample;
         
         c.CurVal <<= c.VolumeShift;
@@ -789,10 +786,21 @@ s32 SPU::RunChannel(SPUChannel &c)
         
         c.PrevVal = c.CurVal;
 
+        if (InterpolationType == AudioInterpolation::Clean) {
+            SPUSample<s32> sample{};
+            c.MixIntoSampleWithPan(c.CurVal, sample);
+            
+            const float t = cycle / spuClockHz;
+            
+            Resampler.AddSampleL(c.Num, t, sample.l / 256.0 * MasterVolume / 128.0);
+            Resampler.AddSampleR(c.Num, t, sample.r / 256.0 * MasterVolume / 128.0);
+        }
+        
         c.Timer = c.TimerReload + (c.Timer - 0x10000);
         cycle += 0x10000 - c.TimerReload;
     }
 
+    
     return c.CurVal;
 }
 
@@ -848,20 +856,19 @@ void SPU::Run(u32 dummy)
         }
     }
 
-    const float spuClockHz = 33513982 / 2;
-    const int WalkBackInterval = 33554432 / 2;
-    if (SpuCycles >= WalkBackInterval) {
-        SpuCycles -= WalkBackInterval;
-        Resampler.WalkBackTime(WalkBackInterval / spuClockHz);
-    }
-
+    const float t = InterpCycles / spuClockHz;
     if (InterpolationType == AudioInterpolation::Faithful) {
         SPUSample<s32> output = Mix();
 
-        const float t = SpuCycles / spuClockHz;
-
-        Resampler.AddSampleL(t, (float)output.l);
-        Resampler.AddSampleR(t, (float)output.r);
+        Resampler.AddSampleL(0, t, (float)output.l);
+        Resampler.AddSampleR(0, t, (float)output.r);
+    }
+    
+    const float spuClockHz = 33513982 / 2;
+    const int WalkBackInterval = 33513982 / 2;
+    if (InterpCycles >= WalkBackInterval) {
+        InterpCycles -= WalkBackInterval;
+        Resampler.WalkBackTime(WalkBackInterval / spuClockHz);
     }
 
     while (Resampler.CanGenerateOutputBuffer()) {
@@ -890,7 +897,7 @@ void SPU::Run(u32 dummy)
     }
 
     NDS.ScheduleEvent(Event_SPU, true, 1024, 0, 0);
-    SpuCycles += 512;
+    InterpCycles += 512;
 
 }
 

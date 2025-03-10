@@ -82,6 +82,8 @@ public:
         msg_ImportSavefile,
 
         msg_EnableCheats,
+
+        msg_SetAudioInterpolation,
     };
 
     struct Message
@@ -124,6 +126,8 @@ public:
     int importSavefile(const QString& filename);
 
     void enableCheats(bool enable);
+
+    void setAudioInterpolation(int audioInterpolation);
 
     bool emuIsRunning();
     bool emuIsActive();

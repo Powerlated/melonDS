@@ -1939,7 +1939,7 @@ void MainWindow::onUpdateAudioSettings()
     assert(emuInstance->nds != nullptr);
 
     int interp = globalCfg.GetInt("Audio.Interpolation");
-    emuInstance->nds->SPU.SetInterpolation(static_cast<AudioInterpolation>(interp));
+    emuThread->setAudioInterpolation(interp);
 
     int bitdepth = globalCfg.GetInt("Audio.BitDepth");
     if (bitdepth == 0)

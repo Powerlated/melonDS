@@ -662,6 +662,10 @@ void EmuThread::handleMessages()
         case msg_EnableCheats:
             emuInstance->enableCheats(msg.param.value<bool>());
             break;
+
+        case msg_SetAudioInterpolation:
+            emuInstance->nds->SPU.SetInterpolation(msg.param.value<AudioInterpolation>());
+            break;
         }
 
         msgSemaphore.release();
@@ -842,6 +846,12 @@ int EmuThread::importSavefile(const QString& filename)
 void EmuThread::enableCheats(bool enable)
 {
     sendMessage({.type = msg_EnableCheats, .param = enable});
+    waitMessage();
+}
+
+void EmuThread::setAudioInterpolation(int audioInterpolation)
+{
+    sendMessage({.type = msg_SetAudioInterpolation, .param = audioInterpolation});
     waitMessage();
 }
 

@@ -356,7 +356,7 @@ void EmuInstance::audioInit()
     audioSyncCond = SDL_CreateCond();
     audioSyncLock = SDL_CreateMutex();
 
-    audioFreq = 48000; // TODO: make configurable?
+    audioFreq = 32768; // TODO: make configurable?
     SDL_AudioSpec whatIwant, whatIget;
     memset(&whatIwant, 0, sizeof(SDL_AudioSpec));
     whatIwant.freq = audioFreq;
@@ -432,8 +432,8 @@ void EmuInstance::audioUpdateSettings()
 {
     micClose();
 
-    int audiointerp = globalCfg.GetInt("Audio.Interpolation");
-    nds->SPU.SetInterpolation(static_cast<AudioInterpolation>(audiointerp));
+    int interp = globalCfg.GetInt("Audio.Interpolation");
+    emuThread->setAudioInterpolation(interp);
     setupMicInputData();
 
     micOpen();

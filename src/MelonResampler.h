@@ -45,10 +45,10 @@ public:
                    std::function<void(std::vector<float> &)> audioReadyCallback);
     void Reset();
     void WalkBackTime(float t);
-    void AddSampleL(float t, float v);
-    void AddSampleR(float t, float v);
-    void AddDeltaL(float t, float v);
-    void AddDeltaR(float t, float v);
+    void AddSampleL(int channel, float t, float v);
+    void AddSampleR(int channel, float t, float v);
+    void AddDeltaL(int channel, float t, float v);
+    void AddDeltaR(int channel, float t, float v);
     const std::vector<Sample>& GenerateOutputBuffer();
     bool CanGenerateOutputBuffer();
 
@@ -70,7 +70,7 @@ private:
     float windowedSincArea;
 
     Sample lastT;
-    Sample lastV;
+    Sample lastV[16];
     float thisBufferStartT;
     Sample outV;
     // A running compensation for lost low-order bits during summation.

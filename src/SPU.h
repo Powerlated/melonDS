@@ -239,7 +239,7 @@ private:
 
     Platform::Mutex* AudioLock;
 
-    u64 SpuCycles = 0;
+    u64 InterpCycles = 0;
 
     u16 Cnt = 0;
     u8 MasterVolume = 0;

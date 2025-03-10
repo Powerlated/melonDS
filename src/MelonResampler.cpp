@@ -17,7 +17,7 @@ MelonResampler::MelonResampler(
       irLen(irLen),
       outputBufferLen(outputBufferLen),
       lastT(Sample{}),
-      lastV(Sample{}),
+      lastV{},
       thisBufferStartT(0),
       outV(Sample{}),
       c(Sample{})
@@ -51,7 +51,9 @@ void MelonResampler::Reset()
   }
 
   lastT = Sample{};
-  lastV = Sample{};
+  for (auto v : lastV) {
+    v = {};
+  }
   thisBufferStartT = 0;
   outV = Sample{};
   c = Sample{};
@@ -70,40 +72,44 @@ void MelonResampler::WalkBackTime(float t)
   thisBufferStartT -= t;
 }
 
-void MelonResampler::AddSampleL(float t, float v)
+void MelonResampler::AddSampleL(int channel, float t, float v)
 {
   assert(t >= thisBufferStartT);
 
-  deltaDeques[0].push_back({t, v - lastV.l});
   lastT.l = t;
-  lastV.l = v;
+  if (lastV[channel].l == v) return;
+
+  deltaDeques[0].push_back({t, v - lastV[channel].l});
+  lastV[channel].l = v;
 }
 
-void MelonResampler::AddSampleR(float t, float v)
+void MelonResampler::AddSampleR(int channel, float t, float v)
 {
   assert(t >= thisBufferStartT);
 
-  deltaDeques[1].push_back({t, v - lastV.r});
   lastT.r = t;
-  lastV.r = v;
+  if (lastV[channel].r == v) return;
+
+  deltaDeques[1].push_back({t, v - lastV[channel].r});
+  lastV[channel].r = v;
 }
 
-void MelonResampler::AddDeltaL(float t, float dV)
+void MelonResampler::AddDeltaL(int channel, float t, float dV)
 {
   assert(t >= thisBufferStartT);
 
   deltaDeques[0].push_back({t, dV});
   lastT.l = t;
-  lastV.l += dV;
+  lastV[channel].l += dV;
 }
 
-void MelonResampler::AddDeltaR(float t, float dV)
+void MelonResampler::AddDeltaR(int channel, float t, float dV)
 {
   assert(t >= thisBufferStartT);
 
   deltaDeques[1].push_back({t, dV});
   lastT.r = t;
-  lastV.r += dV;
+  lastV[channel].r += dV;
 }
 
 bool MelonResampler::CanGenerateOutputBuffer()
@@ -164,7 +170,7 @@ const std::vector<MelonResampler::Sample> &MelonResampler::GenerateOutputBuffer(
   // Remove deltas that won't affect the next buffer
   for (auto &deque : deltaDeques)
   {
-    while (deque.front().t + SamplesToSeconds(irLen) < thisBufferEndT)
+    while (!deque.empty() && deque.front().t + SamplesToSeconds(irLen) < thisBufferEndT)
     {
       deque.pop_front();
     }
@@ -231,14 +237,14 @@ float MelonResampler::CausalScaledWindowedSincLUT(float t)
   int i0 = (int)i;
   int i1 = i0 + 1;
   float f = i - i0;
-  if (i0 < 0)
+  if (i0 < 0 || i1 >= lut.size())
     return 0;
   return (1 - f) * lut.at(i0) + f * lut.at(i1);
 }
 
 void MelonResampler::GenerateLUT()
 {
-  lut.resize(LUT_SIZE + 2);
+  lut.resize(LUT_SIZE);
   for (int i = 0; i < LUT_SIZE; i++)
   {
     double t = i * LUT_T_END / (LUT_SIZE - 1);
