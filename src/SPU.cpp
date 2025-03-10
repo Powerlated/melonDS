@@ -177,8 +177,10 @@ void SPU::SetPowerCnt(u32 val)
 void SPU::SetInterpolation(AudioInterpolation type)
 {
     InterpolationType = type;
-    Resampler.Reset();
-    InterpCycles = 0;
+    for (int i= 0; i < 16; i++) {
+        Resampler.AddSampleL(i, InterpCycles / spuClockHz, 0);
+        Resampler.AddSampleR(i, InterpCycles / spuClockHz, 0);
+    }
 }
 
 void SPU::SetBias(u16 bias)
