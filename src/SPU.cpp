@@ -175,8 +175,7 @@ void SPU::SetInterpolation(AudioInterpolation type)
 {
     InterpolationType = type;
     for (int i = 0; i < 16; i++) {
-        Resampler.AddSampleL(i, InterpCycles * SPU_CYCLE_T, 0);
-        Resampler.AddSampleR(i, InterpCycles * SPU_CYCLE_T, 0);
+        Resampler.AddSample(i, InterpCycles * SPU_CYCLE_T, 0, 0);
     }
 }
 
@@ -754,8 +753,7 @@ s32 SPU::RunChannel(SPUChannel &c)
         ((type < 3) && ((c.Length+c.LoopPos) < 16))
     ) {
         if (InterpolationType == AudioInterpolation::Clean) {
-            Resampler.AddSampleL(c.Num, InterpCycles * SPU_CYCLE_T,0);
-            Resampler.AddSampleR(c.Num, InterpCycles * SPU_CYCLE_T,0);
+            Resampler.AddSample(c.Num, InterpCycles * SPU_CYCLE_T, 0, 0);
         }
         return 0;
     }
@@ -766,8 +764,7 @@ s32 SPU::RunChannel(SPUChannel &c)
         c.KeyOn = false;
 
         if (InterpolationType == AudioInterpolation::Clean) {
-            Resampler.AddSampleL(c.Num, InterpCycles * SPU_CYCLE_T,0);
-            Resampler.AddSampleR(c.Num, InterpCycles * SPU_CYCLE_T,0);
+            Resampler.AddSample(c.Num, InterpCycles * SPU_CYCLE_T, 0, 0);
         }
     }
 
@@ -796,8 +793,7 @@ s32 SPU::RunChannel(SPUChannel &c)
             
             const float t = cycle * SPU_CYCLE_T;
             
-            Resampler.AddSampleL(c.Num, t, sample.l);
-            Resampler.AddSampleR(c.Num, t, sample.r);
+            Resampler.AddSample(c.Num, t, sample.l, sample.r);
         }
         
         c.Timer = c.TimerReload + (c.Timer - 0x10000);
@@ -869,8 +865,7 @@ void SPU::Run(u32 dummy)
             output = Mix();
         }
 
-        Resampler.AddSampleL(0, t, (float)output.l);
-        Resampler.AddSampleR(0, t, (float)output.r);
+        Resampler.AddSample(0, t, (float)output.l, (float)output.r);
     }
 
     if (Resampler.CanGenerateOutputBuffer()) {

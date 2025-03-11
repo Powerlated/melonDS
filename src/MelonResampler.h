@@ -15,12 +15,6 @@
 class MelonResampler
 {
 public:
-    struct Delta
-    {
-        float t;
-        float dV;
-    };
-
     struct Sample {
         float v[2];
         Sample operator+(const Sample &rhs) const {
@@ -32,12 +26,27 @@ public:
         Sample operator/(const Sample &rhs) const {
             return { v[0] / rhs.v[0], v[1] / rhs.v[1] };
         }
+        Sample operator*(const float &rhs) const {
+            return { v[0] * rhs, v[1] * rhs };
+        }
         Sample operator/(const float &rhs) const {
             return { v[0] / rhs, v[1] / rhs };
+        }
+        Sample operator+=(const Sample &rhs) {
+            return { v[0] -= rhs.v[0], v[1] -= rhs.v[1] };
         }
         Sample operator-=(const float &rhs) {
             return { v[0] -= rhs, v[1] -= rhs };
         }
+        bool operator==(const Sample &rhs) {
+            return v[0] == rhs.v[0] && v[1] == rhs.v[1];
+        }
+    };
+
+    struct Delta
+    {
+        float t;
+        Sample dV;
     };
 
     MelonResampler(uint32_t outputBufferLen,
@@ -46,8 +55,7 @@ public:
                    float fCutoff);
     void Reset();
     void WalkBackTime(float t);
-    void AddSampleL(int channel, float t, float v);
-    void AddSampleR(int channel, float t, float v);
+    void AddSample(int channel, float t, float vL, float vR);
     bool CanGenerateOutputBuffer();
     const std::vector<Sample>& GenerateOutputBuffer();
 
@@ -59,7 +67,7 @@ private:
     float CausalScaledWindowedSincLUT(float t);
 
     std::vector<float> lut;
-    melonDS::FIFO<Delta, 32768> deltaQueues[2];
+    melonDS::FIFO<Delta, 32768> deltaQueue;
     std::vector<Sample> outputBuffer;
 
     float fsOut;
@@ -69,7 +77,7 @@ private:
     uint32_t outputBufferLen;
     float invWindowedSincArea;
     
-    Sample tLastSample;
+    float tLastSample;
     Sample vLast[16];
     float tThisBufferStart;
     Sample vOut;

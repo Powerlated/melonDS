@@ -16,7 +16,7 @@ MelonResampler::MelonResampler(
       fCutoff(fCutoff),
       irLen(irLen),
       outputBufferLen(outputBufferLen),
-      tLastSample(Sample{}),
+      tLastSample(0),
       vLast{},
       tThisBufferStart(0),
       vOut(Sample{}),
@@ -45,12 +45,9 @@ MelonResampler::MelonResampler(
 
 void MelonResampler::Reset()
 {
-  for (auto &deque : deltaQueues)
-  {
-    deque.Clear();
-  }
+  deltaQueue.Clear();
 
-  tLastSample = Sample{};
+  tLastSample = 0;
   for (auto v : vLast)
   {
     v = {};
@@ -62,54 +59,37 @@ void MelonResampler::Reset()
 
 void MelonResampler::WalkBackTime(float t)
 {
-  for (auto &queue : deltaQueues)
+  uint32_t size = deltaQueue.Level();
+  for (uint32_t i = 0; i < size; i++)
   {
-    uint32_t size = queue.Level();
-    for (uint32_t i = 0; i < size; i++)
-    {
-      queue.PeekPtr(i)->t -= t;
-    }
+    deltaQueue.PeekPtr(i)->t -= t;
   }
+
   tLastSample -= t;
   tThisBufferStart -= t;
 }
 
-void MelonResampler::AddSampleL(int channel, float t, float v)
+void MelonResampler::AddSample(int channel, float t, float vL, float vR)
 {
   assert(t >= tThisBufferStart);
 
-  tLastSample.v[0] = t;
+  tLastSample = t;
   
-  if (vLast[channel].v[0] == v)
+  Sample v = Sample {vL, vR};
+  if (vLast[channel] == v)
   {
     return;
   }
 
-  float dv = (v - vLast[channel].v[0]) * invWindowedSincArea;
-  vLast[channel].v[0] = v;
-  deltaQueues[0].Write({t, dv});
-}
-
-void MelonResampler::AddSampleR(int channel, float t, float v)
-{
-  assert(t >= tThisBufferStart);
-  
-  tLastSample.v[1] = t;
-  
-  if (vLast[channel].v[1] == v)
-  {
-    return;
-  }
-
-  float dv = (v - vLast[channel].v[1]) * invWindowedSincArea;
-  vLast[channel].v[1] = v;
-  deltaQueues[1].Write({t, dv});
+  Sample dv = (v - vLast[channel]) * invWindowedSincArea;
+  vLast[channel] = v;
+  deltaQueue.Write({t, dv});
 }
 
 bool MelonResampler::CanGenerateOutputBuffer()
 {
   float tThisBufferEnd = tThisBufferStart + SamplesToSeconds(outputBufferLen);
-  return tLastSample.v[0] > tThisBufferEnd && tLastSample.v[1] > tThisBufferEnd;
+  return tLastSample > tThisBufferEnd;
 }
 
 const std::vector<MelonResampler::Sample> &MelonResampler::GenerateOutputBuffer()
@@ -119,57 +99,48 @@ const std::vector<MelonResampler::Sample> &MelonResampler::GenerateOutputBuffer(
 
   float tThisBufferEnd = tThisBufferStart + SamplesToSeconds(outputBufferLen);
 
-  uint32_t vi = 0;
-  for (const auto &queue : deltaQueues)
+  uint32_t size = deltaQueue.Level();
+  for (uint32_t qi = 0; qi < size; qi++)
   {
-    uint32_t size = queue.Level();
-    for (uint32_t qi = 0; qi < size; qi++)
+    auto delta = deltaQueue.Peek(qi);
+    // This delta is past the end of the buffer, we are done for now
+    if (delta.t > tThisBufferEnd)
     {
-      auto delta = queue.Peek(qi);
-      // This delta is past the end of the buffer, we are done for now
-      if (delta.t > tThisBufferEnd)
-      {
-        break;
-      }
-
-      // when does this delta's influence start?
-      int32_t i = floor((delta.t - tThisBufferStart) * fsOut);
-
-      // when does this delta's influence end?
-      int32_t iEnd = i + irLen;
-      if (i < 0)
-      {
-        i = 0;
-      }
-
-      if (iEnd > (int)outputBufferLen)
-      {
-        iEnd = outputBufferLen;
-      }
-
-      float irN = (tThisBufferStart + i * T - delta.t) * fsOut;
-      // break into fractional and integer part for LUT access
-      int32_t irLutN = (int32_t)floor(irN);
-      float irLutFrac = irN - irLutN;
-      int32_t irLutPhase = irLutFrac * LUT_PHASES; 
-      int32_t irLutI = irLutPhase * irLen + irLutN + 4; // 4 entries of padding in case some calculation is off and gives us a negative index
-      for (; i < iEnd; i++)
-      {
-        outputBuffer[i].v[vi] += delta.dV * lut[irLutI];
-        irLutI++;
-      }
+      break;
     }
 
-    vi++;
+    // when does this delta's influence start?
+    int32_t i = floor((delta.t - tThisBufferStart) * fsOut);
+
+    // when does this delta's influence end?
+    int32_t iEnd = i + irLen;
+    if (i < 0)
+    {
+      i = 0;
+    }
+
+    if (iEnd > (int)outputBufferLen)
+    {
+      iEnd = outputBufferLen;
+    }
+
+    float irN = (tThisBufferStart + i * T - delta.t) * fsOut;
+    // break into fractional and integer part for LUT access
+    int32_t irLutN = (int32_t)floor(irN);
+    float irLutFrac = irN - irLutN;
+    int32_t irLutPhase = irLutFrac * LUT_PHASES; 
+    int32_t irLutI = irLutPhase * irLen + irLutN + 4; // 4 entries of padding in case some calculation is off and gives us a negative index
+    for (; i < iEnd; i++)
+    {
+      outputBuffer[i] += delta.dV * lut[irLutI];
+      irLutI++;
+    }
   }
 
   // Remove deltas that won't affect the next buffer
-  for (auto &deque : deltaQueues)
+  while (!deltaQueue.IsEmpty() && deltaQueue.Peek().t + SamplesToSeconds(irLen) < tThisBufferEnd)
   {
-    while (!deque.IsEmpty() && deque.Peek().t + SamplesToSeconds(irLen) < tThisBufferEnd)
-    {
-      deque.Read();
-    }
+    deltaQueue.Read();
   }
 
   // Integrate the output buffer, using Kahan summation algorithm
