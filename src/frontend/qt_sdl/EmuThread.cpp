@@ -136,10 +136,12 @@ void EmuThread::run()
     videoSettingsDirty = true;
 
     u32 nframes = 0;
-    double perfCountsSec = 1.0 / SDL_GetPerformanceFrequency();
-    double lastTime = SDL_GetPerformanceCounter() * perfCountsSec;
+    double perfCounterT = 1.0 / SDL_GetPerformanceFrequency();
+    double lastTime = SDL_GetPerformanceCounter() * perfCounterT;
     double frameLimitError = 0.0;
     double lastMeasureTime = lastTime;
+    double measuredFpsEma = 0;
+    double measuredFpsEmaAlpha = 0.05; // EMA formula is equivalent to discrete-time first-order low-pass so I just use alpha instead of Smoothing/(n + 1) lol
 
     u32 winUpdateCount = 0, winUpdateFreq = 1;
     u8 dsiVolumeLevel = 0x1F;
@@ -191,7 +193,7 @@ void EmuThread::run()
             if (emuInstance->nds->ConsoleType == 1)
             {
                 DSi* dsi = static_cast<DSi*>(emuInstance->nds);
-                double currentTime = SDL_GetPerformanceCounter() * perfCountsSec;
+                double currentTime = SDL_GetPerformanceCounter() * perfCounterT;
 
                 // Handle power button
                 if (emuInstance->hotkeyDown(HK_PowerButton))
@@ -391,7 +393,7 @@ void EmuThread::run()
 
             if (emuInstance->doLimitFPS)
             {
-                double curtime = SDL_GetPerformanceCounter() * perfCountsSec;
+                double curtime = SDL_GetPerformanceCounter() * perfCounterT;
 
                 frameLimitError += frametimeStep - (curtime - lastTime);
                 if (frameLimitError < -frametimeStep)
@@ -403,21 +405,28 @@ void EmuThread::run()
                 {
                     SDL_Delay(round(frameLimitError * 1000.0));
                     double timeBeforeSleep = curtime;
-                    curtime = SDL_GetPerformanceCounter() * perfCountsSec;
+                    curtime = SDL_GetPerformanceCounter() * perfCounterT;
                     frameLimitError -= curtime - timeBeforeSleep;
                 }
 
                 lastTime = curtime;
             }
 
+            double time = SDL_GetPerformanceCounter() * perfCounterT;
+            double dt = time - lastMeasureTime;
+            lastMeasureTime = time;
+
+            double instantaneousMeasuredFps = 1 / dt;
+            double measuredFpsEmaNew = 
+                measuredFpsEmaAlpha * instantaneousMeasuredFps 
+                + (1 - measuredFpsEmaAlpha) * measuredFpsEma;
+            measuredFpsEma = measuredFpsEmaNew;
+
+            int fps = round(measuredFpsEmaNew);
+            
             nframes++;
             if (nframes >= 30)
             {
-                double time = SDL_GetPerformanceCounter() * perfCountsSec;
-                double dt = time - lastMeasureTime;
-                lastMeasureTime = time;
-
-                u32 fps = round(nframes / dt);
                 nframes = 0;
 
                 float fpstarget = 1.0/frametimeStep;
@@ -426,12 +435,12 @@ void EmuThread::run()
                 if (winUpdateFreq < 1)
                     winUpdateFreq = 1;
                     
-                double actualfps = (59.8261 * 263.0) / nlines;
+                double actualNdsFps = (59.8261 * 263.0) / nlines;
                 int inst = emuInstance->instanceID;
                 if (inst == 0)
-                    snprintf(melontitle, sizeof(melontitle), "[%d/%.0f] melonDS " MELONDS_VERSION, fps, actualfps);
+                    snprintf(melontitle, sizeof(melontitle), "[%d/%.0f] melonDS " MELONDS_VERSION, fps, actualNdsFps);
                 else
-                    snprintf(melontitle, sizeof(melontitle), "[%d/%.0f] melonDS (%d)", fps, actualfps, inst+1);
+                    snprintf(melontitle, sizeof(melontitle), "[%d/%.0f] melonDS (%d)", fps, actualNdsFps, inst+1);
                 changeWindowTitle(melontitle);
             }
         }
@@ -439,7 +448,7 @@ void EmuThread::run()
         {
             // paused
             nframes = 0;
-            lastTime = SDL_GetPerformanceCounter() * perfCountsSec;
+            lastTime = SDL_GetPerformanceCounter() * perfCounterT;
             lastMeasureTime = lastTime;
 
             emit windowUpdate();

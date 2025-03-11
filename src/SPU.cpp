@@ -885,25 +885,26 @@ void SPU::Run(u32 dummy)
         // compensate for sinc interpolation overshoot
         const float OVERSHOOT_COMPENSATION = 0.9;
 
-        for (int i = 0; i < outBuf.size(); i++) {
-            if (OutputBufferNumAvailable() < OutputBufferLen)
-            {
-                auto l = (s32)(outBuf[i].v[0] * 0.5 * OVERSHOOT_COMPENSATION);
-                auto r = (s32)(outBuf[i].v[1] * 0.5 * OVERSHOOT_COMPENSATION);
-                // TODO: there is probably still clipping happening here!!
-                l = std::clamp(l, -32768, 32767);
-                r = std::clamp(r, -32768, 32767);
-                OutputBuffer[OutputBufferWritePosition] = {
-                    (s16)(l), 
-                    (s16)(r)
-                };
-                
-                OutputBufferWritePosition++;
-                if (OutputBufferWritePosition >= OutputBufferLen) {
-                    OutputBufferWritePosition = 0;
-                }
-            }
+        int numToWrite = OutputBufferLen - OutputBufferNumAvailable(); 
+        if (numToWrite > outBuf.size()) {
+            numToWrite = outBuf.size();
         }
+
+        int pos = OutputBufferWritePosition;
+        for (int i = 0; i < numToWrite; i++) {
+            auto l = (s32)(outBuf[i].v[0] * 0.5 * OVERSHOOT_COMPENSATION);
+            auto r = (s32)(outBuf[i].v[1] * 0.5 * OVERSHOOT_COMPENSATION);
+            // TODO: there is probably still clipping happening here!!
+            l = std::clamp(l, -32768, 32767);
+            r = std::clamp(r, -32768, 32767);
+            OutputBuffer[pos] = {
+                (s16)(l), 
+                (s16)(r)
+            };
+            
+            pos = (pos + 1) % OutputBufferLen;
+        }
+        OutputBufferWritePosition = pos;
     }
 
     NDS.ScheduleEvent(Event_SPU, true, 1024, 0, 0);
@@ -947,17 +948,16 @@ int SPU::DequeueOutputBuffer(s16* data, int samples)
         numToRead = samples;
     }
 
+    int pos = OutputBufferReadPosition;
     for (int i = 0; i < numToRead; i++)
     {
-        auto s = OutputBuffer[OutputBufferReadPosition];
+        auto s = OutputBuffer[pos];
         *data++ = s.l;
         *data++ = s.r;
 
-        OutputBufferReadPosition++;
-        if (OutputBufferReadPosition >= OutputBufferLen) {
-            OutputBufferReadPosition = 0;
-        }
+        pos = (pos + 1) % OutputBufferLen;
     }
+    OutputBufferReadPosition = pos;
 
     return numToRead;
 }
