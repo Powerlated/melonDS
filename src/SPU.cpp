@@ -99,7 +99,7 @@ SPU::SPU(melonDS::NDS& nds, AudioBitDepth bitdepth, AudioInterpolation interpola
     },
     AudioLock(Platform::Mutex_Create()),
     Degrade10Bit(bitdepth == AudioBitDepth::_10Bit || (nds.ConsoleType == 1 && bitdepth == AudioBitDepth::Auto)),
-    Resampler(MelonResampler(RESAMPLER_BUF_LEN, RESAMPLER_IR_LEN, RESAMPLER_OUT_FS, RESAMPLER_CUTOFF, nullptr))
+    Resampler(MelonResampler(RESAMPLER_BUF_LEN, RESAMPLER_IR_LEN, RESAMPLER_OUT_FS, RESAMPLER_CUTOFF))
 {
     NDS.RegisterEventFuncs(Event_SPU, this, {MakeEventThunk(SPU, Run)});
 
@@ -177,7 +177,7 @@ void SPU::SetPowerCnt(u32 val)
 void SPU::SetInterpolation(AudioInterpolation type)
 {
     InterpolationType = type;
-    for (int i= 0; i < 16; i++) {
+    for (int i = 0; i < 16; i++) {
         Resampler.AddSampleL(i, InterpCycles * SPU_CYCLE_T, 0);
         Resampler.AddSampleR(i, InterpCycles * SPU_CYCLE_T, 0);
     }
@@ -897,8 +897,8 @@ void SPU::Run(u32 dummy)
             // FIXME: apparently this does happen!!!
             if (OutputBackBufferWritePosition < OutputBufferLen)
             {
-                auto l = (s32)(outBuf[i].l * 0.5 * OVERSHOOT_COMPENSATION);
-                auto r = (s32)(outBuf[i].r * 0.5 * OVERSHOOT_COMPENSATION);
+                auto l = (s32)(outBuf[i].v[0] * 0.5 * OVERSHOOT_COMPENSATION);
+                auto r = (s32)(outBuf[i].v[1] * 0.5 * OVERSHOOT_COMPENSATION);
                 // TODO: there is probably still clipping happening here!!
                 l = std::clamp(l, -32768, 32767);
                 r = std::clamp(r, -32768, 32767);
@@ -1068,6 +1068,11 @@ void SPU::SetCnt(u16 cnt) {
             Channels[1].CleanMixGainR = 1.0;
             Channels[3].CleanMixGainR = 1.0;
             break;
+    }
+
+    for (int i = 0; i < 16; i++) {
+        Resampler.AddSampleL(i, InterpCycles * SPU_CYCLE_T, 0);
+        Resampler.AddSampleR(i, InterpCycles * SPU_CYCLE_T, 0);
     }
 }
 

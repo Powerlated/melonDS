@@ -89,6 +89,20 @@ public:
         return Entries[pos];
     }
 
+    T* PeekPtr()
+    {
+        return &Entries[ReadPos];
+    }
+
+    T* PeekPtr(u32 offset)
+    {
+        u32 pos = ReadPos + offset;
+        if (pos >= NumEntries)
+            pos -= NumEntries;
+
+        return &Entries[pos];
+    }
+
     u32 Level() const { return NumOccupied; }
     bool IsEmpty() const { return NumOccupied == 0; }
     bool IsFull() const { return NumOccupied >= NumEntries; }
