@@ -31,7 +31,7 @@ void EmuInstance::audioCallback(void* data, Uint8* stream, int len)
     EmuInstance* inst = (EmuInstance*)data;
 
     SDL_LockMutex(inst->audioSyncLock);
-    int num_in = inst->nds->SPU.ReadOutput((s16*)stream, len / sizeof(SPUSample<s16>));
+    int num_in = inst->nds->SPU.DequeueOutputBuffer((s16*)stream, len / sizeof(SPUSample<s16>));
     SDL_CondSignal(inst->audioSyncCond);
     SDL_UnlockMutex(inst->audioSyncLock);
 
@@ -419,7 +419,7 @@ void EmuInstance::audioSync()
     if (audioDevice)
     {
         SDL_LockMutex(audioSyncLock);
-        while (nds->SPU.GetOutputSize() > 1024)
+        while (nds->SPU.OutputBufferNumAvailable() > 1024)
         {
             int ret = SDL_CondWaitTimeout(audioSyncCond, audioSyncLock, 500);
             if (ret == SDL_MUTEX_TIMEDOUT) break;

@@ -22,6 +22,7 @@
 #include "Savestate.h"
 #include "Platform.h"
 #include "MelonResampler.h"
+#include <atomic>
 
 namespace melonDS
 {
@@ -195,11 +196,10 @@ public:
     void ChannelSetCnt(SPUChannel &c, u32 val);
     void ChannelUpdateCleanMixGain(SPUChannel &c);
 
-    void DrainOutput();
-    void InitOutput();
-    int GetOutputSize() const;
-    int ReadOutput(s16* data, int samples);
-    void TransferOutput();
+    void DrainOutputBuffer();
+    void InitOutputBuffer();
+    int OutputBufferNumAvailable() const;
+    int DequeueOutputBuffer(s16* data, int samples);
     
     void SetCnt(u16 cnt);
     u8 Read8(u32 addr);
@@ -214,15 +214,12 @@ private:
 
     static const u32 OutputBufferLen = 4096;
     melonDS::NDS& NDS;
-    SPUSample<s16> OutputBackBuffer[OutputBufferLen] {};
-    u32 OutputBackBufferWritePosition = 0;
-
-    SPUSample<s16> OutputFrontBuffer[OutputBufferLen] {};
-    u32 OutputFrontBufferWritePosition = 0;
-    u32 OutputFrontBufferReadPosition = 0;
-
-    Platform::Mutex* AudioLock;
+    SPUSample<s16> OutputBuffer[OutputBufferLen] {};
+    std::atomic<u32> OutputBufferReadPosition = 0;
+    std::atomic<u32> OutputBufferWritePosition = 0;
     
+    Platform::Mutex* AudioLock;
+
     MelonResampler Resampler;
     u64 InterpCycles = 0;
 

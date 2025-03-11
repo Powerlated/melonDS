@@ -65,7 +65,7 @@ const s16 SPUChannel::PSGTable[8][8] =
     {-0x7FFF, -0x7FFF, -0x7FFF, -0x7FFF, -0x7FFF, -0x7FFF, -0x7FFF, -0x7FFF}
 };
 
-const int RESAMPLER_BUF_LEN = 1024;
+const int RESAMPLER_BUF_LEN = 256;
 const int RESAMPLER_IR_LEN = 32;
 const int RESAMPLER_OUT_FS = 32768; // Fs = frequency, sample (i.e. sample rate)
 const int RESAMPLER_CUTOFF = 16384; 
@@ -97,7 +97,6 @@ SPU::SPU(melonDS::NDS& nds, AudioBitDepth bitdepth, AudioInterpolation interpola
         SPUCaptureUnit(0, nds),
         SPUCaptureUnit(1, nds),
     },
-    AudioLock(Platform::Mutex_Create()),
     Degrade10Bit(bitdepth == AudioBitDepth::_10Bit || (nds.ConsoleType == 1 && bitdepth == AudioBitDepth::Auto)),
     Resampler(MelonResampler(RESAMPLER_BUF_LEN, RESAMPLER_IR_LEN, RESAMPLER_OUT_FS, RESAMPLER_CUTOFF))
 {
@@ -106,24 +105,22 @@ SPU::SPU(melonDS::NDS& nds, AudioBitDepth bitdepth, AudioInterpolation interpola
     ApplyBias = true;
     Degrade10Bit = false;
 
-    memset(OutputFrontBuffer, 0, sizeof(OutputFrontBuffer));
+    memset(OutputBuffer, 0, sizeof(OutputBuffer));
 
-    OutputBackBufferWritePosition = 0;
-    OutputFrontBufferReadPosition = 0;
-    OutputFrontBufferWritePosition = 0;
+    OutputBufferReadPosition = 0;
+    OutputBufferWritePosition = 0;
 }
 
 SPU::~SPU()
 {
     Platform::Mutex_Free(AudioLock);
     AudioLock = nullptr;
-
     NDS.UnregisterEventFuncs(Event_SPU);
 }
 
 void SPU::Reset()
 {
-    InitOutput();
+    InitOutputBuffer();
 
     SetCnt(0);
 
@@ -146,13 +143,10 @@ void SPU::Reset()
 
 void SPU::Stop()
 {
-    Platform::Mutex_Lock(AudioLock);
-    memset(OutputFrontBuffer, 0, sizeof(OutputFrontBuffer));
+    memset(OutputBuffer, 0, sizeof(OutputBuffer));
 
-    OutputBackBufferWritePosition = 0;
-    OutputFrontBufferReadPosition = 0;
-    OutputFrontBufferWritePosition = 0;
-    Platform::Mutex_Unlock(AudioLock);
+    OutputBufferReadPosition = 0;
+    OutputBufferWritePosition = 0;
 }
 
 void SPU::DoSavestate(Savestate* file)
@@ -879,7 +873,7 @@ void SPU::Run(u32 dummy)
         Resampler.AddSampleR(0, t, (float)output.r);
     }
 
-    while (Resampler.CanGenerateOutputBuffer()) {
+    if (Resampler.CanGenerateOutputBuffer()) {
         const int WalkBackInterval = 33513982 / 2;
         if (InterpCycles >= WalkBackInterval) {
             InterpCycles -= WalkBackInterval;
@@ -892,21 +886,22 @@ void SPU::Run(u32 dummy)
         const float OVERSHOOT_COMPENSATION = 0.9;
 
         for (int i = 0; i < outBuf.size(); i++) {
-            // OutputBufferFrame can never get full because it's
-            // transfered to OutputBuffer at the end of the frame
-            // FIXME: apparently this does happen!!!
-            if (OutputBackBufferWritePosition < OutputBufferLen)
+            if (OutputBufferNumAvailable() < OutputBufferLen)
             {
                 auto l = (s32)(outBuf[i].v[0] * 0.5 * OVERSHOOT_COMPENSATION);
                 auto r = (s32)(outBuf[i].v[1] * 0.5 * OVERSHOOT_COMPENSATION);
                 // TODO: there is probably still clipping happening here!!
                 l = std::clamp(l, -32768, 32767);
                 r = std::clamp(r, -32768, 32767);
-                OutputBackBuffer[OutputBackBufferWritePosition] = {
+                OutputBuffer[OutputBufferWritePosition] = {
                     (s16)(l), 
                     (s16)(r)
                 };
-                OutputBackBufferWritePosition++;
+                
+                OutputBufferWritePosition++;
+                if (OutputBufferWritePosition >= OutputBufferLen) {
+                    OutputBufferWritePosition = 0;
+                }
             }
         }
     }
@@ -914,89 +909,57 @@ void SPU::Run(u32 dummy)
     NDS.ScheduleEvent(Event_SPU, true, 1024, 0, 0);
 }
 
-void SPU::TransferOutput()
+void SPU::DrainOutputBuffer()
 {
-    Platform::Mutex_Lock(AudioLock);
-    for (u32 i = 0; i < OutputBackBufferWritePosition; i++)
-    {
-        OutputFrontBuffer[OutputFrontBufferWritePosition] = OutputBackBuffer[i];
-        OutputFrontBufferWritePosition++;
-        OutputFrontBufferWritePosition %= OutputBufferLen;
-
-        if (OutputFrontBufferWritePosition == OutputFrontBufferReadPosition)
-        {
-            // advance the read position too, to avoid losing the entire FIFO
-            OutputFrontBufferReadPosition++;
-            OutputFrontBufferReadPosition %= OutputBufferLen;
-        }
-    }
-    OutputBackBufferWritePosition = 0;
-    Platform::Mutex_Unlock(AudioLock);
+    OutputBufferWritePosition = 0;
+    OutputBufferReadPosition = 0;
 }
 
-void SPU::DrainOutput()
+void SPU::InitOutputBuffer()
 {
-    Platform::Mutex_Lock(AudioLock);
-    OutputFrontBufferWritePosition = 0;
-    OutputFrontBufferReadPosition = 0;
-    Platform::Mutex_Unlock(AudioLock);
+    memset(OutputBuffer, 0, sizeof(OutputBuffer));
+    OutputBufferReadPosition = 0;
+    OutputBufferWritePosition = 0;
 }
 
-void SPU::InitOutput()
+int SPU::OutputBufferNumAvailable() const
 {
-    Platform::Mutex_Lock(AudioLock);
-    memset(OutputBackBuffer, 0, sizeof(OutputBackBuffer));
-    memset(OutputFrontBuffer, 0, sizeof(OutputFrontBuffer));
-    OutputFrontBufferReadPosition = 0;
-    OutputFrontBufferWritePosition = 0;
-    Platform::Mutex_Unlock(AudioLock);
-}
-
-int SPU::GetOutputSize() const
-{
-    Platform::Mutex_Lock(AudioLock);
-
     int ret;
-    if (OutputFrontBufferWritePosition >= OutputFrontBufferReadPosition)
-        ret = OutputFrontBufferWritePosition - OutputFrontBufferReadPosition;
-    else
-        ret = OutputBufferLen - OutputFrontBufferReadPosition + OutputFrontBufferWritePosition;
+    if (OutputBufferWritePosition >= OutputBufferReadPosition) 
+    {
+        ret = OutputBufferWritePosition - OutputBufferReadPosition;
+    } 
+    else 
+    {
+        ret = OutputBufferLen - OutputBufferReadPosition + OutputBufferWritePosition;
+    }
 
-
-    Platform::Mutex_Unlock(AudioLock);
     return ret;
 }
 
 /**
  * @returns num samples read
  */
-int SPU::ReadOutput(s16* data, int samples)
+int SPU::DequeueOutputBuffer(s16* data, int samples)
 {
-    Platform::Mutex_Lock(AudioLock);
-    if (OutputFrontBufferReadPosition == OutputFrontBufferWritePosition)
-    {
-        // no samples available
-        Platform::Mutex_Unlock(AudioLock);
-        return 0;
+    int numToRead = OutputBufferNumAvailable();
+    if (numToRead > samples) {
+        numToRead = samples;
     }
 
-    for (int i = 0; i < samples; i++)
+    for (int i = 0; i < numToRead; i++)
     {
-        *data++ = OutputFrontBuffer[OutputFrontBufferReadPosition].l;
-        *data++ = OutputFrontBuffer[OutputFrontBufferReadPosition].r;
+        auto s = OutputBuffer[OutputBufferReadPosition];
+        *data++ = s.l;
+        *data++ = s.r;
 
-        OutputFrontBufferReadPosition++;
-        OutputFrontBufferReadPosition %= OutputBufferLen;
-
-        if (OutputFrontBufferWritePosition == OutputFrontBufferReadPosition)
-        {
-            Platform::Mutex_Unlock(AudioLock);
-            return i + 1;
+        OutputBufferReadPosition++;
+        if (OutputBufferReadPosition >= OutputBufferLen) {
+            OutputBufferReadPosition = 0;
         }
     }
 
-    Platform::Mutex_Unlock(AudioLock);
-    return samples;
+    return numToRead;
 }
 
 void SPU::SetCnt(u16 cnt) {
