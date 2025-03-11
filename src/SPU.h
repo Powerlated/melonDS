@@ -40,7 +40,6 @@ enum class AudioInterpolation
 {
     Clean,    // Band-limited zero-order hold - DS-style crunchiness without the nasty aliasing.
     Faithful, // Aliased zero-order hold - True to the hardware. Crunchiness + nasty aliasing.
-    Smooth    // Low-passed at the Fs/2 of the instrument sample - No crunchiness, no aliasing.
 };
 
 template <typename T>
