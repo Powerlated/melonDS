@@ -17,12 +17,12 @@ class MelonResampler
 public:
     struct Delta
     {
-        double t;
-        double dV;
+        float t;
+        float dV;
     };
 
     struct Sample {
-        double v[2];
+        float v[2];
         Sample operator+(const Sample &rhs) const {
             return { v[0] + rhs.v[0], v[1] + rhs.v[1] };
         }
@@ -32,22 +32,22 @@ public:
         Sample operator/(const Sample &rhs) const {
             return { v[0] / rhs.v[0], v[1] / rhs.v[1] };
         }
-        Sample operator/(const double &rhs) const {
+        Sample operator/(const float &rhs) const {
             return { v[0] / rhs, v[1] / rhs };
         }
-        Sample operator-=(const double &rhs) {
+        Sample operator-=(const float &rhs) {
             return { v[0] -= rhs, v[1] -= rhs };
         }
     };
 
     MelonResampler(uint32_t outputBufferLen,
                    uint32_t irLen,
-                   double fsOut,
-                   double fCutoff);
+                   float fsOut,
+                   float fCutoff);
     void Reset();
-    void WalkBackTime(double t);
-    void AddSampleL(int channel, double t, double v);
-    void AddSampleR(int channel, double t, double v);
+    void WalkBackTime(float t);
+    void AddSampleL(int channel, float t, float v);
+    void AddSampleR(int channel, float t, float v);
     bool CanGenerateOutputBuffer();
     const std::vector<Sample>& GenerateOutputBuffer();
 
@@ -56,25 +56,25 @@ public:
 private:
     void GenerateLUT();
 
-    double SamplesToSeconds(double samples);
+    float SamplesToSeconds(float samples);
     double CausalScaledWindowedSinc(double t);
-    double CausalScaledWindowedSincLUT(double t);
+    float CausalScaledWindowedSincLUT(float t);
 
-    std::vector<double> lut;
-    melonDS::FIFO<Delta, 100000000> deltaQueues[2];
+    std::vector<float> lut;
+    melonDS::FIFO<Delta, 32768> deltaQueues[2];
     std::vector<Sample> outputBuffer;
 
-    double fsOut;
-    double T;
-    double fCutoff;
+    float fsOut;
+    float T;
+    float fCutoff;
     uint32_t irLen;
     uint32_t outputBufferLen;
-    double invWindowedSincArea;
+    float invWindowedSincArea;
     
     Sample tLastSample;
     Sample vLast[16];
-    double tThisBufferStart;
+    float tThisBufferStart;
     Sample vOut;
     // A running compensation for lost low-order bits during summation.
     Sample c;
-};
+}; 

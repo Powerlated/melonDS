@@ -126,11 +126,14 @@ void SPU::Reset()
     InitOutput();
 
     SetCnt(0);
+
     MasterVolume = 0;
     Bias = 0;
 
-    for (int i = 0; i < 16; i++)
+    for (int i = 0; i < 16; i++) {
+        ChannelSetCnt(Channels[i], 0);
         Channels[i].Reset();
+    }
 
     Capture[0].Reset();
     Capture[1].Reset();
@@ -224,7 +227,6 @@ void SPUChannel::Reset()
 {
     KeyOn = false;
 
-    SetCnt(0);
     SrcAddr = 0;
     TimerReload = 0;
     LoopPos = 0;
@@ -792,12 +794,10 @@ s32 SPU::RunChannel(SPUChannel &c)
         c.CurVal = ((s32)c.CurSample << c.VolumeShift) * c.Volume;
         
         if (InterpolationType == AudioInterpolation::Clean) {
-            float scalingFactor = MasterVolume * (1 / 128.0 / 256.0 / 1024.0);
-
             // All bitshifts converted to divisions for maximum hifi
             SPUSample<float> sample{
-                .l = ((s64)c.CurVal * (128-c.Pan)) * scalingFactor * c.CleanMixGainL,
-                .r = ((s64)c.CurVal * c.Pan) * scalingFactor * c.CleanMixGainR,    
+                .l = ((s64)c.CurSample * (128-c.Pan)) * c.CleanMixGainL,
+                .r = ((s64)c.CurSample * c.Pan) * c.CleanMixGainR,    
             };
             
             const float t = cycle * SPU_CYCLE_T;
@@ -1002,77 +1002,103 @@ int SPU::ReadOutput(s16* data, int samples)
 void SPU::SetCnt(u16 cnt) {
     Cnt = cnt;
 
+    for (int i = 0; i < 16; i++) {
+        ChannelUpdateCleanMixGain(Channels[i]);
+    }
+}
+
+void SPU::ChannelSetCnt(SPUChannel &c, u32 val) {
+    u32 oldcnt = c.Cnt;
+    c.Cnt = val & 0xFF7F837F;
+
+    c.Volume = c.Cnt & 0x7F;
+    if (c.Volume == 127) c.Volume++;
+
+    const u8 volshift[4] = {4, 3, 2, 0};
+    c.VolumeShift = volshift[(c.Cnt >> 8) & 0x3];
+
+    c.Pan = (c.Cnt >> 16) & 0x7F;
+    if (c.Pan == 127) c.Pan++;
+
+    if ((val & (1<<31)) && !(oldcnt & (1<<31)))
+    {
+        c.KeyOn = true;
+    }
+
+    ChannelUpdateCleanMixGain(c);
+}
+
+void SPU::ChannelUpdateCleanMixGain(SPUChannel &c) {
+    float masterGain = MasterVolume * (1.0 / 128.0 / 256.0 / 1024.0);
+    float channelGain = (u32)(1 << c.VolumeShift) * c.Volume;
+    float gain = masterGain * channelGain;
+
     switch (Cnt & 0x0300)
     {
         case 0x0000: // left mixer
-            for (auto& c : Channels) {
-                c.CleanMixGainL = 1.0;
+            c.CleanMixGainL = gain;
+            if ((Cnt & (1<<12)) && c.Num == 12) {
+                c.CleanMixGainL = 0;
             }
-            if (!(Cnt & (1<<12))) {
-                Channels[1].CleanMixGainL = 0;
-            }
-            if (!(Cnt & (1<<13))) {
-                Channels[3].CleanMixGainL = 0;
+            if ((Cnt & (1<<13)) && c.Num == 13) {
+                c.CleanMixGainL = 0;
             }
             break;
         case 0x0100: // channel 1
-            for (auto& c : Channels) {
+            if (c.Num == 1) {
+                c.CleanMixGainL = gain;
+            } else {
                 c.CleanMixGainL = 0.0;
             }
-            Channels[1].CleanMixGainL = 1.0;
             break;
         case 0x0200: // channel 3
-            for (auto& c : Channels) {
+            if (c.Num == 3) {
+                c.CleanMixGainL = gain;
+            } else {
                 c.CleanMixGainL = 0.0;
             }
-            Channels[3].CleanMixGainL = 1.0;
             break;
         case 0x0300: // channel 1+3
-            for (auto& c : Channels) {
+            if (c.Num == 1 || c.Num == 3) {
+                c.CleanMixGainL = gain;
+            } else {
                 c.CleanMixGainL = 0.0;
             }
-            Channels[1].CleanMixGainL = 1.0;
-            Channels[3].CleanMixGainL = 1.0;
             break;
     }
 
     switch (Cnt & 0x0C00)
     {
         case 0x0000: // right mixer
-            for (auto& c : Channels) {
-                c.CleanMixGainR = 1.0;
+            c.CleanMixGainR = gain;
+            if ((Cnt & (1<<12)) && c.Num == 12) {
+                c.CleanMixGainR = 0;
             }
-            if (!(Cnt & (1<<12))) {
-                Channels[1].CleanMixGainR = 0;
-            }
-            if (!(Cnt & (1<<13))) {
-                Channels[3].CleanMixGainR = 0;
+            if ((Cnt & (1<<13)) && c.Num == 13) {
+                c.CleanMixGainR = 0;
             }
             break;
         case 0x0400: // channel 1
-            for (auto& c : Channels) {
+            if (c.Num == 1) {
+                c.CleanMixGainR = gain;
+            } else {
                 c.CleanMixGainR = 0.0;
             }
-            Channels[1].CleanMixGainR = 1.0;
             break;
         case 0x0800: // channel 3
-            for (auto& c : Channels) {
+            if (c.Num == 3) {
+                c.CleanMixGainR = gain;
+            } else {
                 c.CleanMixGainR = 0.0;
             }
-            Channels[3].CleanMixGainR = 1.0;
             break;
         case 0x0C00: // channel 1+3
-            for (auto& c : Channels) {
+            if (c.Num == 1 || c.Num == 3) {
+                c.CleanMixGainR = gain;
+            } else {
                 c.CleanMixGainR = 0.0;
             }
-            Channels[1].CleanMixGainR = 1.0;
-            Channels[3].CleanMixGainR = 1.0;
             break;
-    }
-
-    for (int i = 0; i < 16; i++) {
-        Resampler.AddSampleL(i, InterpCycles * SPU_CYCLE_T, 0);
-        Resampler.AddSampleR(i, InterpCycles * SPU_CYCLE_T, 0);
     }
 }
 
@@ -1170,10 +1196,10 @@ void SPU::Write8(u32 addr, u8 val)
 
         switch (addr & 0xF)
         {
-        case 0x0: chan->SetCnt((chan->Cnt & 0xFFFFFF00) | val); return;
-        case 0x1: chan->SetCnt((chan->Cnt & 0xFFFF00FF) | (val << 8)); return;
-        case 0x2: chan->SetCnt((chan->Cnt & 0xFF00FFFF) | (val << 16)); return;
-        case 0x3: chan->SetCnt((chan->Cnt & 0x00FFFFFF) | (val << 24)); return;
+        case 0x0: ChannelSetCnt(*chan, (chan->Cnt & 0xFFFFFF00) | val); return;
+        case 0x1: ChannelSetCnt(*chan, (chan->Cnt & 0xFFFF00FF) | (val << 8)); return;
+        case 0x2: ChannelSetCnt(*chan, (chan->Cnt & 0xFF00FFFF) | (val << 16)); return;
+        case 0x3: ChannelSetCnt(*chan, (chan->Cnt & 0x00FFFFFF) | (val << 24)); return;
         }
     }
     else
@@ -1212,8 +1238,8 @@ void SPU::Write16(u32 addr, u16 val)
 
         switch (addr & 0xF)
         {
-        case 0x0: chan->SetCnt((chan->Cnt & 0xFFFF0000) | val); return;
-        case 0x2: chan->SetCnt((chan->Cnt & 0x0000FFFF) | (val << 16)); return;
+        case 0x0: ChannelSetCnt(*chan, (chan->Cnt & 0xFFFF0000) | val); return;
+        case 0x2: ChannelSetCnt(*chan, (chan->Cnt & 0x0000FFFF) | (val << 16)); return;
         case 0x8:
             chan->SetTimerReload(val);
             if      ((addr & 0xF0) == 0x10) Capture[0].SetTimerReload(val);
@@ -1261,7 +1287,7 @@ void SPU::Write32(u32 addr, u32 val)
 
         switch (addr & 0xF)
         {
-        case 0x0: chan->SetCnt(val); return;
+        case 0x0: ChannelSetCnt(*chan, val); return;
         case 0x4: chan->SetSrcAddr(val); return;
         case 0x8:
             chan->SetLoopPos(val >> 16);
@@ -1288,7 +1314,7 @@ void SPU::Write32(u32 addr, u32 val)
             return;
 
         case 0x04000508:
-            Capture[0].SetCnt(val & 0xFF);
+            Capture[0].SetCnt(val & 0xFF); 
             Capture[1].SetCnt(val >> 8);
             if (val & 0x0303) Log(LogLevel::Warn, "!! UNSUPPORTED SPU CAPTURE MODE %04X\n", val);
             return;

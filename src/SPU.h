@@ -95,26 +95,6 @@ public:
     void FIFO_BufferData();
     template<typename T> T FIFO_ReadData();
 
-    void SetCnt(u32 val)
-    {
-        u32 oldcnt = Cnt;
-        Cnt = val & 0xFF7F837F;
-
-        Volume = Cnt & 0x7F;
-        if (Volume == 127) Volume++;
-
-        const u8 volshift[4] = {4, 3, 2, 0};
-        VolumeShift = volshift[(Cnt >> 8) & 0x3];
-
-        Pan = (Cnt >> 16) & 0x7F;
-        if (Pan == 127) Pan++;
-
-        if ((val & (1<<31)) && !(oldcnt & (1<<31)))
-        {
-            KeyOn = true;
-        }
-    }
-
     void SetSrcAddr(u32 val) { SrcAddr = val & 0x07FFFFFC; }
     void SetTimerReload(u32 val) { TimerReload = val & 0xFFFF; }
     void SetLoopPos(u32 val) { LoopPos = (val & 0xFFFF) << 2; }
@@ -211,6 +191,9 @@ public:
 
     SPUSample<s32> Mix();
     void Run(u32 dummy);
+
+    void ChannelSetCnt(SPUChannel &c, u32 val);
+    void ChannelUpdateCleanMixGain(SPUChannel &c);
 
     void DrainOutput();
     void InitOutput();

@@ -9,8 +9,8 @@
 MelonResampler::MelonResampler(
     uint32_t outputBufferLen,
     uint32_t irLen,
-    double fsOut,
-    double fCutoff)
+    float fsOut,
+    float fCutoff)
     : fsOut(fsOut),
       T(1.0 / fsOut),
       fCutoff(fCutoff),
@@ -60,7 +60,7 @@ void MelonResampler::Reset()
   c = Sample{};
 }
 
-void MelonResampler::WalkBackTime(double t)
+void MelonResampler::WalkBackTime(float t)
 {
   for (auto &queue : deltaQueues)
   {
@@ -74,7 +74,7 @@ void MelonResampler::WalkBackTime(double t)
   tThisBufferStart -= t;
 }
 
-void MelonResampler::AddSampleL(int channel, double t, double v)
+void MelonResampler::AddSampleL(int channel, float t, float v)
 {
   assert(t >= tThisBufferStart);
 
@@ -92,7 +92,7 @@ void MelonResampler::AddSampleL(int channel, double t, double v)
   vLast[channel].v[0] = v;
 }
 
-void MelonResampler::AddSampleR(int channel, double t, double v)
+void MelonResampler::AddSampleR(int channel, float t, float v)
 {
   // assert(t >= thisBufferStartT);
 
@@ -112,7 +112,7 @@ void MelonResampler::AddSampleR(int channel, double t, double v)
 
 bool MelonResampler::CanGenerateOutputBuffer()
 {
-  double tThisBufferEnd = tThisBufferStart + SamplesToSeconds(outputBufferLen);
+  float tThisBufferEnd = tThisBufferStart + SamplesToSeconds(outputBufferLen);
   return tLastSample.v[0] > tThisBufferEnd && tLastSample.v[1] > tThisBufferEnd;
 }
 
@@ -121,7 +121,7 @@ const std::vector<MelonResampler::Sample> &MelonResampler::GenerateOutputBuffer(
   // assert(CanGenerateOutputBuffer());
   std::fill(outputBuffer.begin(), outputBuffer.end(), Sample{});
 
-  double tThisBufferEnd = tThisBufferStart + SamplesToSeconds(outputBufferLen);
+  float tThisBufferEnd = tThisBufferStart + SamplesToSeconds(outputBufferLen);
 
   uint32_t vi = 0;
   for (const auto &queue : deltaQueues)
@@ -151,10 +151,10 @@ const std::vector<MelonResampler::Sample> &MelonResampler::GenerateOutputBuffer(
         iEnd = outputBufferLen;
       }
 
-      double irN = (tThisBufferStart + i * T - delta.t) * fsOut;
+      float irN = (tThisBufferStart + i * T - delta.t) * fsOut;
       // break into fractional and integer part for LUT access
       int32_t irLutN = (int32_t)floor(irN);
-      double irLutFrac = irN - irLutN;
+      float irLutFrac = irN - irLutN;
       int32_t irLutPhase = irLutFrac * LUT_PHASES; 
       int32_t irLutI = irLutPhase * irLen + irLutN + 4; // 4 entries of padding in case some calculation is off and gives us a negative index
       for (; i < iEnd; i++)
@@ -190,7 +190,7 @@ const std::vector<MelonResampler::Sample> &MelonResampler::GenerateOutputBuffer(
   return outputBuffer;
 }
 
-double MelonResampler::SamplesToSeconds(double n)
+float MelonResampler::SamplesToSeconds(float n)
 {
   return n / fsOut;
 }
@@ -238,7 +238,7 @@ void MelonResampler::GenerateLUT()
   int i = 4;
   for (int p = 0; p < LUT_PHASES; p++)
   {
-    double shift = ((double)T * p) / LUT_PHASES;
+    double shift = ((float)T * p) / LUT_PHASES;
 
     for (int n = 0; n < irLen; n++)
     {
