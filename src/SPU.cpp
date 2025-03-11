@@ -66,9 +66,9 @@ const s16 SPUChannel::PSGTable[8][8] =
 };
 
 const int RESAMPLER_BUF_LEN = 256;
-const int RESAMPLER_IR_LEN = 32;
+const int RESAMPLER_IR_LEN = 24;
 const int RESAMPLER_OUT_FS = 32768; // Fs = frequency, sample (i.e. sample rate)
-const int RESAMPLER_CUTOFF = 16384; 
+const int RESAMPLER_CUTOFF = 15360; 
 
 const float SPU_CYCLE_T = 1.0 / (33513982 / 2);
 

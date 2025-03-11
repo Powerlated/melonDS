@@ -79,35 +79,31 @@ void MelonResampler::AddSampleL(int channel, float t, float v)
   assert(t >= tThisBufferStart);
 
   tLastSample.v[0] = t;
-
-  v *= invWindowedSincArea;
-
+  
   if (vLast[channel].v[0] == v)
   {
-    num_dupes++;
     return;
   }
 
-  deltaQueues[0].Write({t, v - vLast[channel].v[0]});
+  float dv = (v - vLast[channel].v[0]) * invWindowedSincArea;
   vLast[channel].v[0] = v;
+  deltaQueues[0].Write({t, dv});
 }
 
 void MelonResampler::AddSampleR(int channel, float t, float v)
 {
-  // assert(t >= thisBufferStartT);
-
+  assert(t >= tThisBufferStart);
+  
   tLastSample.v[1] = t;
-
-  v *= invWindowedSincArea;
-
+  
   if (vLast[channel].v[1] == v)
   {
-    num_dupes++;
     return;
   }
 
-  deltaQueues[1].Write({t, v - vLast[channel].v[1]});
+  float dv = (v - vLast[channel].v[1]) * invWindowedSincArea;
   vLast[channel].v[1] = v;
+  deltaQueues[1].Write({t, dv});
 }
 
 bool MelonResampler::CanGenerateOutputBuffer()

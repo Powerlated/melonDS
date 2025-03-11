@@ -51,8 +51,6 @@ public:
     bool CanGenerateOutputBuffer();
     const std::vector<Sample>& GenerateOutputBuffer();
 
-    uint64_t num_dupes = 0;
-
 private:
     void GenerateLUT();
 
