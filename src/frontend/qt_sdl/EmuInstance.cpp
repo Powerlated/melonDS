@@ -1302,8 +1302,8 @@ bool EmuInstance::updateConsole() noexcept
             .ARM7BIOS = std::move(arm7bios),
             .Firmware = std::move(*firmware),
             .JIT = jitargs,
-            .AudioBitDepth = static_cast<AudioBitDepth>(globalCfg.GetInt("Audio.BitDepth")),
-            .AudioInterpolation = static_cast<AudioInterpolation>(globalCfg.GetInt("Audio.Interpolation")),
+            .AudioBitDepth = static_cast<AudioBitDepthOption>(globalCfg.GetInt("Audio.BitDepth")),
+            .AudioInterpolation = static_cast<AudioInterpolationOption>(globalCfg.GetInt("Audio.Interpolation")),
             .AudioTimeScale = (float)(ndsTrueFramerate / globalCfg.GetDouble("TargetFPS")),
             .GDB = gdbargs,
     };

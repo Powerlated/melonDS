@@ -673,7 +673,7 @@ void EmuThread::handleMessages()
             break;
 
         case msg_SetAudioInterpolation:
-            emuInstance->nds->SPU.SetInterpolation(msg.param.value<AudioInterpolation>());
+            emuInstance->nds->SPU.SetInterpolation(msg.param.value<AudioInterpolationOption>());
             break;
         }
 

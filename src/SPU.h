@@ -29,14 +29,14 @@ namespace melonDS
 class NDS;
 class SPU;
 
-enum class AudioBitDepth
+enum class AudioBitDepthOption
 {
     Auto,
     _10Bit,
     _16Bit,
 };
 
-enum class AudioInterpolation
+enum class AudioInterpolationOption
 {
     Clean,    // Band-limited zero-order hold - DS-style crunchiness without the nasty aliasing.
     Faithful, // Aliased zero-order hold - True to the hardware. Crunchiness + nasty aliasing.
@@ -173,7 +173,7 @@ private:
 class SPU
 {
 public:
-    explicit SPU(melonDS::NDS& nds, AudioBitDepth bitdepth, AudioInterpolation interpolation, float timeScale);
+    explicit SPU(melonDS::NDS& nds, AudioBitDepthOption bitdepth, AudioInterpolationOption interpolation, float timeScale);
     ~SPU();
     void Reset();
     void DoSavestate(Savestate* file);
@@ -182,12 +182,12 @@ public:
 
     void SetPowerCnt(u32 val);
 
-    void SetInterpolation(AudioInterpolation type);
+    void SetInterpolation(AudioInterpolationOption type);
     void SetTimeScale(float timeScale);
 
     void SetBias(u16 bias);
     void SetDegrade10Bit(bool enable);
-    void SetDegrade10Bit(AudioBitDepth depth);
+    void SetDegrade10Bit(AudioBitDepthOption depth);
     void SetApplyBias(bool enable);
 
     SPUSample<s32> Mix();
@@ -233,7 +233,7 @@ private:
     std::array<SPUChannel, 16> Channels;
     std::array<SPUCaptureUnit, 2> Capture;
 
-    AudioInterpolation InterpolationType;
+    AudioInterpolationOption InterpolationType;
 };
 
 }

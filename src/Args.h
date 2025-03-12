@@ -104,8 +104,8 @@ struct NDSArgs
     /// Ignored in builds that don't have the JIT included.
     std::optional<JITArgs> JIT = JITArgs();
 
-    AudioBitDepth AudioBitDepth = AudioBitDepth::Auto;
-    AudioInterpolation AudioInterpolation = AudioInterpolation::Clean;
+    AudioBitDepthOption AudioBitDepth = AudioBitDepthOption::Auto;
+    AudioInterpolationOption AudioInterpolation = AudioInterpolationOption::Clean;
     float AudioTimeScale = 1.0;
 
     /// How the GDB stub should be handled.

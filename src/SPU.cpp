@@ -70,7 +70,7 @@ const int RESAMPLER_IR_LEN = 24;
 const int RESAMPLER_OUT_FS = 32768; // Fs = frequency, sample (i.e. sample rate)
 const int RESAMPLER_CUTOFF = 15360; 
 
-SPU::SPU(melonDS::NDS& nds, AudioBitDepth bitdepth, AudioInterpolation interpolation, float timeScale) :
+SPU::SPU(melonDS::NDS& nds, AudioBitDepthOption bitdepth, AudioInterpolationOption interpolation, float timeScale) :
     NDS(nds),
     Channels {
         SPUChannel(0, nds),
@@ -95,7 +95,7 @@ SPU::SPU(melonDS::NDS& nds, AudioBitDepth bitdepth, AudioInterpolation interpola
         SPUCaptureUnit(0, nds),
         SPUCaptureUnit(1, nds),
     },
-    Degrade10Bit(bitdepth == AudioBitDepth::_10Bit || (nds.ConsoleType == 1 && bitdepth == AudioBitDepth::Auto)),
+    Degrade10Bit(bitdepth == AudioBitDepthOption::_10Bit || (nds.ConsoleType == 1 && bitdepth == AudioBitDepthOption::Auto)),
     Resampler(MelonResampler(RESAMPLER_BUF_LEN, RESAMPLER_IR_LEN, RESAMPLER_OUT_FS, RESAMPLER_CUTOFF))
 {
     NDS.RegisterEventFuncs(Event_SPU, this, {MakeEventThunk(SPU, Run)});
@@ -170,7 +170,7 @@ void SPU::SetPowerCnt(u32 val)
     // TODO
 }
 
-void SPU::SetInterpolation(AudioInterpolation type)
+void SPU::SetInterpolation(AudioInterpolationOption type)
 {
     InterpolationType = type;
     for (int i = 0; i < 16; i++) {
@@ -199,17 +199,17 @@ void SPU::SetDegrade10Bit(bool enable)
     Degrade10Bit = enable;
 }
 
-void SPU::SetDegrade10Bit(AudioBitDepth depth)
+void SPU::SetDegrade10Bit(AudioBitDepthOption depth)
 {
     switch (depth)
     {
-    case AudioBitDepth::Auto:
+    case AudioBitDepthOption::Auto:
         Degrade10Bit = (NDS.ConsoleType == 0);
         break;
-    case AudioBitDepth::_10Bit:
+    case AudioBitDepthOption::_10Bit:
         Degrade10Bit = true;
         break;
-    case AudioBitDepth::_16Bit:
+    case AudioBitDepthOption::_16Bit:
         Degrade10Bit = false;
         break;
     }
@@ -757,7 +757,7 @@ s32 SPU::RunChannel(SPUChannel &c)
         (!(c.Cnt & (1<<31))) || 
         ((type < 3) && ((c.Length+c.LoopPos) < 16))
     ) {
-        if (InterpolationType == AudioInterpolation::Clean) {
+        if (InterpolationType == AudioInterpolationOption::Clean) {
             Resampler.AddSample(c.Num, InterpCycles * spuCycleT, 0, 0);
         }
         return 0;
@@ -768,7 +768,7 @@ s32 SPU::RunChannel(SPUChannel &c)
         c.Start();
         c.KeyOn = false;
 
-        if (InterpolationType == AudioInterpolation::Clean) {
+        if (InterpolationType == AudioInterpolationOption::Clean) {
             Resampler.AddSample(c.Num, InterpCycles * spuCycleT, 0, 0);
         }
     }
@@ -789,7 +789,7 @@ s32 SPU::RunChannel(SPUChannel &c)
         
         c.CurVal = ((s32)c.CurSample << c.VolumeShift) * c.Volume;
         
-        if (InterpolationType == AudioInterpolation::Clean) {
+        if (InterpolationType == AudioInterpolationOption::Clean) {
             // All bitshifts converted to divisions for maximum hifi
             SPUSample<float> sample{
                 .l = ((s64)c.CurSample * (128-c.Pan)) * c.CleanMixGainL,
@@ -863,7 +863,7 @@ void SPU::Run(u32 dummy)
 
     InterpCycles += 512;
     const float t = InterpCycles * spuCycleT;
-    if (InterpolationType == AudioInterpolation::Faithful) {
+    if (InterpolationType == AudioInterpolationOption::Faithful) {
         SPUSample<s32> output{};
 
         if ((Cnt & (1<<15))) {
