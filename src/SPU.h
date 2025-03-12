@@ -173,7 +173,7 @@ private:
 class SPU
 {
 public:
-    explicit SPU(melonDS::NDS& nds, AudioBitDepth bitdepth, AudioInterpolation interpolation);
+    explicit SPU(melonDS::NDS& nds, AudioBitDepth bitdepth, AudioInterpolation interpolation, float timeScale);
     ~SPU();
     void Reset();
     void DoSavestate(Savestate* file);
@@ -183,6 +183,7 @@ public:
     void SetPowerCnt(u32 val);
 
     void SetInterpolation(AudioInterpolation type);
+    void SetTimeScale(float timeScale);
 
     void SetBias(u16 bias);
     void SetDegrade10Bit(bool enable);
@@ -221,6 +222,7 @@ private:
 
     MelonResampler Resampler;
     u64 InterpCycles = 0;
+    float spuCycleT;
 
     u16 Cnt = 0;
     u8 MasterVolume = 0;

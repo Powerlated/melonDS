@@ -74,7 +74,7 @@ void InterfaceSettingsDialog::on_pbClean_clicked()
 
 void InterfaceSettingsDialog::on_pbAccurate_clicked()
 {
-    ui->spinTargetFPS->setValue(59.8261);
+    ui->spinTargetFPS->setValue(ndsTrueFramerate);
 }
 
 void InterfaceSettingsDialog::on_pb2x_clicked()

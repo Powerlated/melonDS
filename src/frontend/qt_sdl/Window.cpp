@@ -1997,7 +1997,7 @@ void MainWindow::onOpenInterfaceSettings()
 void MainWindow::onUpdateInterfaceSettings()
 {
     pauseOnLostFocus = globalCfg.GetBool("PauseLostFocus");
-    emuInstance->targetFPS = globalCfg.GetDouble("TargetFPS");
+    emuInstance->setTargetFPS(globalCfg.GetDouble("TargetFPS"));
     emuInstance->fastForwardFPS = globalCfg.GetDouble("FastForwardFPS");
     emuInstance->slowmoFPS = globalCfg.GetDouble("SlowmoFPS");
     panel->setMouseHide(globalCfg.GetBool("Mouse.Hide"),

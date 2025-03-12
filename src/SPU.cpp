@@ -70,9 +70,7 @@ const int RESAMPLER_IR_LEN = 24;
 const int RESAMPLER_OUT_FS = 32768; // Fs = frequency, sample (i.e. sample rate)
 const int RESAMPLER_CUTOFF = 15360; 
 
-const float SPU_CYCLE_T = 1.0 / (33513982 / 2);
-
-SPU::SPU(melonDS::NDS& nds, AudioBitDepth bitdepth, AudioInterpolation interpolation) :
+SPU::SPU(melonDS::NDS& nds, AudioBitDepth bitdepth, AudioInterpolation interpolation, float timeScale) :
     NDS(nds),
     Channels {
         SPUChannel(0, nds),
@@ -109,6 +107,8 @@ SPU::SPU(melonDS::NDS& nds, AudioBitDepth bitdepth, AudioInterpolation interpola
 
     OutputBufferReadPosition = 0;
     OutputBufferWritePosition = 0;
+
+    SetTimeScale(timeScale);
 }
 
 SPU::~SPU()
@@ -170,13 +170,18 @@ void SPU::SetPowerCnt(u32 val)
     // TODO
 }
 
-
 void SPU::SetInterpolation(AudioInterpolation type)
 {
     InterpolationType = type;
     for (int i = 0; i < 16; i++) {
-        Resampler.AddSample(i, InterpCycles * SPU_CYCLE_T, 0, 0);
+        Resampler.AddSample(i, InterpCycles * spuCycleT, 0, 0);
     }
+}
+
+void SPU::SetTimeScale(float timeScale)
+{
+    spuCycleT = timeScale / (33513982 / 2);
+    Resampler.Reset();
 }
 
 void SPU::SetBias(u16 bias)
@@ -753,7 +758,7 @@ s32 SPU::RunChannel(SPUChannel &c)
         ((type < 3) && ((c.Length+c.LoopPos) < 16))
     ) {
         if (InterpolationType == AudioInterpolation::Clean) {
-            Resampler.AddSample(c.Num, InterpCycles * SPU_CYCLE_T, 0, 0);
+            Resampler.AddSample(c.Num, InterpCycles * spuCycleT, 0, 0);
         }
         return 0;
     }
@@ -764,7 +769,7 @@ s32 SPU::RunChannel(SPUChannel &c)
         c.KeyOn = false;
 
         if (InterpolationType == AudioInterpolation::Clean) {
-            Resampler.AddSample(c.Num, InterpCycles * SPU_CYCLE_T, 0, 0);
+            Resampler.AddSample(c.Num, InterpCycles * spuCycleT, 0, 0);
         }
     }
 
@@ -791,7 +796,7 @@ s32 SPU::RunChannel(SPUChannel &c)
                 .r = ((s64)c.CurSample * c.Pan) * c.CleanMixGainR,    
             };
             
-            const float t = cycle * SPU_CYCLE_T;
+            const float t = cycle * spuCycleT;
             
             Resampler.AddSample(c.Num, t, sample.l, sample.r);
         }
@@ -857,7 +862,7 @@ void SPU::Run(u32 dummy)
     }
 
     InterpCycles += 512;
-    const float t = InterpCycles * SPU_CYCLE_T;
+    const float t = InterpCycles * spuCycleT;
     if (InterpolationType == AudioInterpolation::Faithful) {
         SPUSample<s32> output{};
 
@@ -872,7 +877,7 @@ void SPU::Run(u32 dummy)
         const int WalkBackInterval = 33513982 / 2;
         if (InterpCycles >= WalkBackInterval) {
             InterpCycles -= WalkBackInterval;
-            Resampler.WalkBackTime(WalkBackInterval * SPU_CYCLE_T);
+            Resampler.WalkBackTime(WalkBackInterval * spuCycleT);
         }
         
         auto& outBuf = Resampler.GenerateOutputBuffer();

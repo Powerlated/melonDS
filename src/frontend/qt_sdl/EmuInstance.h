@@ -150,6 +150,8 @@ public:
     void touchScreen(int x, int y);
     void releaseScreen();
 
+    void setTargetFPS(float _targetFPS);
+
     QMutex renderLock;
 
 private:

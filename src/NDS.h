@@ -47,6 +47,8 @@
 // with this enabled, to make sure it doesn't desync
 //#define DEBUG_CHECK_DESYNC
 
+const float ndsTrueFramerate = 59.8261;
+
 namespace melonDS
 {
 struct NDSArgs;
