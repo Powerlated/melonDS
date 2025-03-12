@@ -51,11 +51,8 @@ AudioSettingsDialog::AudioSettingsDialog(QWidget* parent) : QDialog(parent), ui(
     volume = oldVolume;
     dsiSync = oldDSiSync;
 
-    ui->cbInterpolation->addItem("None");
-    ui->cbInterpolation->addItem("Linear");
-    ui->cbInterpolation->addItem("Cosine");
-    ui->cbInterpolation->addItem("Cubic");
-    ui->cbInterpolation->addItem("Gaussian (SNES)");
+    ui->cbInterpolation->addItem("Clean");
+    ui->cbInterpolation->addItem("Faithful");
     ui->cbInterpolation->setCurrentIndex(oldInterp);
 
     ui->cbBitDepth->addItem("Automatic");
@@ -203,7 +200,7 @@ void AudioSettingsDialog::on_cbBitDepth_currentIndexChanged(int idx)
 void AudioSettingsDialog::on_cbInterpolation_currentIndexChanged(int idx)
 {
     // prevent a spurious change
-    if (ui->cbInterpolation->count() < 5) return;
+    if (ui->cbInterpolation->count() < 2) return;
 
     auto& cfg = emuInstance->getGlobalConfig();
     cfg.SetInt("Audio.Interpolation", ui->cbInterpolation->currentIndex());

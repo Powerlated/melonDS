@@ -1939,7 +1939,7 @@ void MainWindow::onUpdateAudioSettings()
     assert(emuInstance->nds != nullptr);
 
     int interp = globalCfg.GetInt("Audio.Interpolation");
-    emuInstance->nds->SPU.SetInterpolation(static_cast<AudioInterpolation>(interp));
+    emuThread->setAudioInterpolation(interp);
 
     int bitdepth = globalCfg.GetInt("Audio.BitDepth");
     if (bitdepth == 0)
@@ -1997,7 +1997,7 @@ void MainWindow::onOpenInterfaceSettings()
 void MainWindow::onUpdateInterfaceSettings()
 {
     pauseOnLostFocus = globalCfg.GetBool("PauseLostFocus");
-    emuInstance->targetFPS = globalCfg.GetDouble("TargetFPS");
+    emuInstance->setTargetFPS(globalCfg.GetDouble("TargetFPS"));
     emuInstance->fastForwardFPS = globalCfg.GetDouble("FastForwardFPS");
     emuInstance->slowmoFPS = globalCfg.GetDouble("SlowmoFPS");
     panel->setMouseHide(globalCfg.GetBool("Mouse.Hide"),
