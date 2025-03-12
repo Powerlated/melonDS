@@ -6,6 +6,11 @@
 
 #define LUT_PHASES 1024
 
+double CausalScaledWindowedSincBlackman(double irLen, double fsOut, double fCutoff, double t);
+double CausalScaledSinc(double irLen, double fsOut, double fCutoff, double t);
+
+#define ImpulseResponse CausalScaledWindowedSincBlackman 
+
 MelonResampler::MelonResampler(
     uint32_t outputBufferLen,
     uint32_t irLen,
@@ -34,7 +39,7 @@ MelonResampler::MelonResampler(
   double t = 0;
   while (t <= SamplesToSeconds(irLen))
   {
-    area += CausalScaledWindowedSinc(t);
+    area += ImpulseResponse(irLen, fsOut, fCutoff, t);
     t += dt;
   }
 
@@ -162,41 +167,6 @@ float MelonResampler::SamplesToSeconds(float n)
   return n / fsOut;
 }
 
-double blackman_window(double x)
-{
-  if (x < 0 || x > 1)
-    return 0;
-  return 0.42 - 0.5 * cos(2 * M_PI * x) + 0.08 * cos(4 * M_PI * x);
-}
-
-/**
- * @param t the time in seconds, in terms of the output stream
- */
-double MelonResampler::CausalScaledWindowedSinc(double t)
-{
-  // https://www.researchgate.net/figure/Fourier-transform-of-a-rectangle-function-a-and-a-sinc-function-b_fig3_321716019
-  // Sinc function
-  // In time domain, y = sinc(2πt/T);
-  // or alternatively y = sinc(2πt*fsOut/2) because T is inverse of cutoff freq
-  // In frequency domain, z = (T/2π)*rect(T*f)
-
-  double sincParam = 2 * M_PI * (t - 0.5 * (irLen / fsOut)) * fCutoff;
-  double sinc;
-  if (sincParam == 0)
-  {
-    sinc = 1;
-  }
-  else
-  {
-    sinc = sin(sincParam) / (sincParam);
-  }
-
-  double windowParam = t * fsOut / irLen;
-  double window = blackman_window(windowParam);
-
-  return sinc * window;
-}
-
 void MelonResampler::GenerateLUT()
 {
   // Give it 8 entries of padding, 4 on each side of the IR
@@ -210,8 +180,39 @@ void MelonResampler::GenerateLUT()
     for (int n = 0; n < irLen; n++)
     {
       double irT = shift + SamplesToSeconds(n);
-      lut.at(i) = CausalScaledWindowedSinc(irT);
+      lut.at(i) = ImpulseResponse(irLen, fsOut, fCutoff, irT);
       i++;
     }
   }
+}
+
+double CausalScaledSinc(double irLen, double fsOut, double fCutoff, double t) {
+  double sincParam = 2 * M_PI * (t - 0.5 * (irLen / fsOut)) * fCutoff;
+  double sinc;
+  if (sincParam == 0)
+      sinc = 1;
+  else
+      sinc = sin(sincParam) / sincParam;
+  
+  return sinc;
+}
+
+double BlackmanWindow(double x)
+{
+  if (x < 0 || x > 1)
+    return 0;
+  return 0.42 - 0.5 * cos(2 * M_PI * x) + 0.08 * cos(4 * M_PI * x);
+}
+
+/**
+ * @param t the time in seconds, in terms of the output stream
+ */
+double CausalScaledWindowedSincBlackman(double irLen, double fsOut, double fCutoff, double t)
+{
+  double sinc = CausalScaledSinc(irLen, fsOut, fCutoff, t);
+
+  double windowParam = t * fsOut / irLen;
+  double window = BlackmanWindow(windowParam);
+
+  return sinc * window;
 }

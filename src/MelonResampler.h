@@ -63,8 +63,6 @@ private:
     void GenerateLUT();
 
     float SamplesToSeconds(float samples);
-    double CausalScaledWindowedSinc(double t);
-    float CausalScaledWindowedSincLUT(float t);
 
     std::vector<float> lut;
     melonDS::FIFO<Delta, 32768> deltaQueue;
