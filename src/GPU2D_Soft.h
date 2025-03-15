@@ -50,6 +50,7 @@ private:
     /* THESE ARE NOT STATE, JUST TEMPORARY BUFFERS / VARIABLES */
     alignas(8) u32 BGOBJLine[256*3];
     u8* CurBGXMosaicTable;
+    u32 *_3dLine;
 
     array2d<u8, 16, 256> MosaicTable = []() constexpr
     {
@@ -143,6 +144,7 @@ private:
     template<bool window> void DrawSprite_Rotscale(const UnitState *state, u32 num, u32 boundwidth, u32 boundheight, u32 width, u32 height, s32 xpos, s32 ypos);
     template<bool window> void DrawSprite_Normal(const UnitState *state, u32 num, u32 width, u32 height, s32 xpos, s32 ypos);
 
+    u32 *Get3DLine(const UnitState *state);
     void CalculateWindowMask(const UnitState *state, u32 line, u8* windowMask, const u8* objWindow);
 
     void DoCapture(const UnitState *state, u32 line, u32 width);

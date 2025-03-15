@@ -652,7 +652,7 @@ void Unit::PrepareToDrawScanline(u32 line)
         bool isVRAMDisplayMode = ((State.DispCnt >> 16) & 3) == 2;
         if (isVRAMDisplayMode) {
             u32 vrambank = (State.DispCnt >> 18) & 0x3;
-            if (State.GPU_VRAMMap_LCDC & (1<<vrambank))
+            if (Prepared.GPU_VRAMMap_LCDC & (1<<vrambank))
             {
                 u16* vram = (u16*)GPU.VRAM[vrambank];
                 vram = &vram[line * 256];
@@ -686,20 +686,21 @@ void Unit::PrepareToDrawScanline(u32 line)
     }
 
     // Copy variables for the 2D renderer
-    State.GPU3D_IsRendererAccelerated = GPU.GPU3D.IsRendererAccelerated();
-    State.GPU3D_RenderXPos = GPU.GPU3D.GetRenderXPos();
-    State.GPU_VRAMMap_LCDC = GPU.VRAMMap_LCDC;
-    State.ForceBlank = false;
+    Prepared.GPU3D_IsRendererAccelerated = GPU.GPU3D.IsRendererAccelerated();
+    Prepared.GPU3D_RenderXPos = GPU.GPU3D.GetRenderXPos();
+    Prepared.GPU_VRAMMap_LCDC = GPU.VRAMMap_LCDC;
+    Prepared.ForceBlank = false;
+    Prepared.Line = line;
 
     // scanlines that end up outside of the GPU drawing range
     // (as a result of writing to VCount) are filled white
-    if (line > 192) State.ForceBlank = true;
+    if (line > 192) Prepared.ForceBlank = true;
 
     // GPU B can be completely disabled by POWCNT1
     // oddly that's not the case for GPU A
-    if (State.Num && !State.Enabled) State.ForceBlank = true;
+    if (State.Num && !State.Enabled) Prepared.ForceBlank = true;
 
-    if (line == 0 && State.CaptureCnt & (1 << 31) && !State.ForceBlank)
+    if (line == 0 && State.CaptureCnt & (1 << 31) && !Prepared.ForceBlank)
         State.CaptureLatch = true;
 
     // Y mosaic uses incrementing 4-bit counters

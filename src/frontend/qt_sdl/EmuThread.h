@@ -82,8 +82,6 @@ public:
         msg_ImportSavefile,
 
         msg_EnableCheats,
-
-        msg_UpdateVideoSettings,
     };
 
     struct Message
@@ -127,16 +125,16 @@ public:
 
     void enableCheats(bool enable);
 
-    void updateVideoSettings();
-
     bool emuIsRunning();
     bool emuIsActive();
 
     void initContext(int win);
     void deinitContext(int win);
-    void updateVideoRenderer() { lastVideoRenderer = -1; updateVideoSettings(); }
+    void updateVideoSettings() { videoSettingsDirty = true; }
+    void updateVideoRenderer() { videoSettingsDirty = true; lastVideoRenderer = -1; }
 
     int frontBuffer = 0;
+    bool videoSettingsDirty;
     QMutex frontBufferLock;
 
 signals:

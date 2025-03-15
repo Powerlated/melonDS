@@ -200,8 +200,6 @@ void GPU::Reset() noexcept
 
     OAMDirty = 0x3;
     PaletteDirty = 0xF;
-
-    SetThreaded2D(true);
 }
 
 void GPU::SetThreaded2D(bool threaded) noexcept
@@ -1025,16 +1023,6 @@ void GPU::StartHBlank(u32 line) noexcept
         GPU2D_B.PrepareToDrawScanline(line);
         GPU2D_A.PrepareToDrawSprites(line);
         GPU2D_B.PrepareToDrawSprites(line);
-
-        if (!GPU3D.IsRendererAccelerated()) 
-        {
-            GPU2D_A.State._3DLine = GPU3D.GetLine(line);
-        } 
-        else if (GPU2D_A.State.CaptureLatch && (((GPU2D_A.State.CaptureCnt >> 29) & 0x3) != 1))
-        {
-            GPU2D_A.State._3DLine = GPU3D.GetLine(line);
-            //GPU3D::GLRenderer::PrepareCaptureFrame();
-        }
 
         if (Is2DRenderingThreaded)
         {

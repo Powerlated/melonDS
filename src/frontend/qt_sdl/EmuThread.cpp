@@ -131,6 +131,8 @@ void EmuThread::run()
         videoRenderer = 0;
     }
 
+    videoSettingsDirty = true;
+
     u32 nframes = 0;
     double perfCounterT = 1.0 / SDL_GetPerformanceFrequency();
     double lastTime = SDL_GetPerformanceCounter() * perfCounterT;
@@ -225,6 +227,29 @@ void EmuThread::run()
 
             if (useOpenGL)
                 emuInstance->makeCurrentGL();
+
+            // update render settings if needed
+            if (videoSettingsDirty)
+            {
+                emuInstance->renderLock.lock();
+                if (useOpenGL)
+                {
+                    emuInstance->setVSyncGL(true);
+                    videoRenderer = globalCfg.GetInt("3D.Renderer");
+                }
+#ifdef OGLRENDERER_ENABLED
+                else
+#endif
+                {
+                    videoRenderer = 0;
+                }
+
+                updateRendererSettings();
+
+                videoSettingsDirty = false;
+                emuInstance->renderLock.unlock();
+            }
+
 
             // process input and hotkeys
             emuInstance->nds->SetKeyMask(emuInstance->inputMask);
@@ -646,25 +671,6 @@ void EmuThread::handleMessages()
         case msg_EnableCheats:
             emuInstance->enableCheats(msg.param.value<bool>());
             break;
-
-        case msg_UpdateVideoSettings:
-            emuInstance->renderLock.lock();
-            if (useOpenGL)
-            {
-                emuInstance->setVSyncGL(true);
-                videoRenderer = emuInstance->getGlobalConfig().GetInt("3D.Renderer");
-            }
-    #ifdef OGLRENDERER_ENABLED
-            else
-    #endif
-            {
-                videoRenderer = 0;
-            }
-
-            updateRendererSettings();
-
-            emuInstance->renderLock.unlock();
-            break;
         }
 
         msgSemaphore.release();
@@ -848,12 +854,6 @@ void EmuThread::enableCheats(bool enable)
     waitMessage();
 }
 
-void EmuThread::updateVideoSettings()
-{
-    sendMessage({.type = msg_UpdateVideoSettings });
-    waitMessage();
-}
-
 void EmuThread::updateRendererSettings()
 {
     if (videoRenderer != lastVideoRenderer)
@@ -896,7 +896,6 @@ void EmuThread::updateRendererSettings()
     }
 
     emuInstance->nds->GPU.SetThreaded2D(cfg.GetBool("2D.Soft.Threaded"));
-
 }
 
 void EmuThread::compileShaders()

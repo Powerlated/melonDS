@@ -105,15 +105,19 @@ u32 SoftRenderer::ColorComposite(const UnitState *state, int i, u32 val1, u32 va
 
 void SoftRenderer::DrawScanline(const UnitState* state, u32 line)
 {
-    int stride = state->GPU3D_IsRendererAccelerated ? (256*3 + 1) : 256;
+    if (state->Num == 0) {
+        _3dLine = Get3DLine(state);
+    }
+
+    int stride = state->Prepared->GPU3D_IsRendererAccelerated ? (256*3 + 1) : 256;
     u32* dst = &state->Framebuffer[stride * line];
 
-    if (state->ForceBlank)
+    if (state->Prepared->ForceBlank)
     {
         for (int i = 0; i < 256; i++)
             dst[i] = 0xFFFFFFFF;
 
-        if (state->GPU3D_IsRendererAccelerated)
+        if (state->Prepared->GPU3D_IsRendererAccelerated)
         {
             dst[256*3] = 0;
         }
@@ -184,9 +188,9 @@ void SoftRenderer::DrawScanline(const UnitState* state, u32 line)
 
     u32 masterBrightness = state->MasterBrightness;
 
-    if (state->GPU3D_IsRendererAccelerated)
+    if (state->Prepared->GPU3D_IsRendererAccelerated)
     {
-        const u32 xpos = state->GPU3D_RenderXPos;
+        const u32 xpos = state->Prepared->GPU3D_RenderXPos;
 
         dst[256*3] = masterBrightness |
                      (state->DispCnt & 0x30000) |
@@ -242,6 +246,18 @@ void SoftRenderer::VBlankEnd(const UnitState* stateA, const UnitState* stateB)
 
 }
 
+u32 *SoftRenderer::Get3DLine(const UnitState *state) {
+    if (!state->Prepared->GPU3D_IsRendererAccelerated) 
+    {
+        return state->GPU->GPU3D.GetLine(state->Prepared->Line);
+    } 
+    else if (state->CaptureLatch && (((state->CaptureCnt >> 29) & 0x3) != 1))
+    {
+        return state->GPU->GPU3D.GetLine(state->Prepared->Line);
+        //GPU3D::GLRenderer::PrepareCaptureFrame();
+    }
+}
+
 void SoftRenderer::DoCapture(const UnitState *state, u32 line, u32 width)
 {
     // TODO: Figure out display capture, how to get the VRAM back to the main thread
@@ -250,23 +266,21 @@ void SoftRenderer::DoCapture(const UnitState *state, u32 line, u32 width)
 
     // TODO: confirm this
     // it should work like VRAM display mode, which requires VRAM to be mapped to LCDC
-    if (!(state->GPU_VRAMMap_LCDC & (1<<dstvram)))
+    if (!(state->Prepared->GPU_VRAMMap_LCDC & (1<<dstvram)))
         return;
 
     u16* dst = (u16*)state->GPU->VRAM[dstvram];
     u32 dstaddr = (((captureCnt >> 18) & 0x3) << 14) + (line * width);
 
-    // TODO: handle 3D in GPU3D::CurrentRenderer->Accelerated mode!!
-
     u32* srcA;
     if (captureCnt & (1<<24))
     {
-        srcA = state->_3DLine;
+        srcA = _3dLine;
     }
     else
     {
         srcA = BGOBJLine;
-        if (state->GPU3D_IsRendererAccelerated)
+        if (state->Prepared->GPU3D_IsRendererAccelerated)
         {
             // in GPU3D::CurrentRenderer->Accelerated mode, compositing is normally done on the GPU
             // but when doing display capture, we do need the composited output
@@ -284,7 +298,7 @@ void SoftRenderer::DoCapture(const UnitState *state, u32 line, u32 width)
                 {
                     // 3D on top, blending
 
-                    u32 _3dval = state->_3DLine[i];
+                    u32 _3dval = _3dLine[i];
                     if ((_3dval >> 24) > 0)
                         val1 = ColorBlend5(_3dval, val1);
                     else
@@ -294,7 +308,7 @@ void SoftRenderer::DoCapture(const UnitState *state, u32 line, u32 width)
                 {
                     // 3D on bottom, blending
 
-                    u32 _3dval = state->_3DLine[i];
+                    u32 _3dval = _3dLine[i];
                     if ((_3dval >> 24) > 0)
                     {
                         u32 eva = (val3 >> 8) & 0x1F;
@@ -309,7 +323,7 @@ void SoftRenderer::DoCapture(const UnitState *state, u32 line, u32 width)
                 {
                     // 3D on top, normal/fade
 
-                    u32 _3dval = state->_3DLine[i];
+                    u32 _3dval = _3dLine[i];
                     if ((_3dval >> 24) > 0)
                     {
                         u32 evy = (val3 >> 8) & 0x1F;
@@ -338,7 +352,7 @@ void SoftRenderer::DoCapture(const UnitState *state, u32 line, u32 width)
     else
     {
         u32 srcvram = (state->DispCnt >> 18) & 0x3;
-        if (state->GPU_VRAMMap_LCDC & (1<<srcvram))
+        if (state->Prepared->GPU_VRAMMap_LCDC & (1<<srcvram))
             srcB = (u16*)state->GPU->VRAM[srcvram];
 
         if (((state->DispCnt >> 16) & 0x3) != 2)
@@ -470,12 +484,12 @@ void SoftRenderer::DoCapture(const UnitState *state, u32 line, u32 width)
     { \
         if ((bgCnt[num] & 0x0040) && (state->BGMosaicSize[0] > 0)) \
         { \
-            if (state->GPU3D_IsRendererAccelerated) DrawBG_##type<true, DrawPixel_Accel>(state, line, num); \
+            if (state->Prepared->GPU3D_IsRendererAccelerated) DrawBG_##type<true, DrawPixel_Accel>(state, line, num); \
             else DrawBG_##type<true, DrawPixel_Normal>(state, line, num); \
         } \
         else \
         { \
-            if (state->GPU3D_IsRendererAccelerated) DrawBG_##type<false, DrawPixel_Accel>(state, line, num); \
+            if (state->Prepared->GPU3D_IsRendererAccelerated) DrawBG_##type<false, DrawPixel_Accel>(state, line, num); \
             else DrawBG_##type<false, DrawPixel_Normal>(state, line, num); \
         } \
     } while (false)
@@ -485,18 +499,18 @@ void SoftRenderer::DoCapture(const UnitState *state, u32 line, u32 width)
     { \
         if ((bgCnt[2] & 0x0040) && (state->BGMosaicSize[0] > 0)) \
         { \
-            if (state->GPU3D_IsRendererAccelerated) DrawBG_Large<true, DrawPixel_Accel>(state, line); \
+            if (state->Prepared->GPU3D_IsRendererAccelerated) DrawBG_Large<true, DrawPixel_Accel>(state, line); \
             else DrawBG_Large<true, DrawPixel_Normal>(state, line); \
         } \
         else \
         { \
-            if (state->GPU3D_IsRendererAccelerated) DrawBG_Large<false, DrawPixel_Accel>(state, line); \
+            if (state->Prepared->GPU3D_IsRendererAccelerated) DrawBG_Large<false, DrawPixel_Accel>(state, line); \
             else DrawBG_Large<false, DrawPixel_Normal>(state, line); \
         } \
     } while (false)
 
 #define DoInterleaveSprites(prio) \
-    if (state->GPU3D_IsRendererAccelerated) InterleaveSprites<DrawPixel_Accel>(state, prio); else InterleaveSprites<DrawPixel_Normal>(state, prio);
+    if (state->Prepared->GPU3D_IsRendererAccelerated) InterleaveSprites<DrawPixel_Accel>(state, prio); else InterleaveSprites<DrawPixel_Normal>(state, prio);
 
 template<u32 bgmode>
 void SoftRenderer::DrawScanlineBGMode(const UnitState *state, u32 line)
@@ -656,7 +670,7 @@ void SoftRenderer::DrawScanline_BGOBJ(const UnitState *state, u32 line)
     // color special effects
     // can likely be optimized
 
-    if (!state->GPU3D_IsRendererAccelerated)
+    if (!state->Prepared->GPU3D_IsRendererAccelerated)
     {
         for (int i = 0; i < 256; i++)
         {
@@ -786,7 +800,7 @@ void SoftRenderer::DrawBG_3D(const UnitState *state)
 {
     int i = 0;
 
-    if (state->GPU3D_IsRendererAccelerated)
+    if (state->Prepared->GPU3D_IsRendererAccelerated)
     {
         for (i = 0; i < 256; i++)
         {
@@ -801,7 +815,7 @@ void SoftRenderer::DrawBG_3D(const UnitState *state)
     {
         for (i = 0; i < 256; i++)
         {
-            u32 c = state->_3DLine[i];
+            u32 c = _3dLine[i];
 
             if ((c >> 24) == 0) continue;
             if (!(state->Prepared->WindowMask[i] & 0x01)) continue;

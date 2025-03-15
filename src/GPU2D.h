@@ -36,6 +36,11 @@ struct SharedBuffers {
 struct PreparedBuffers {
     u32 RenderedVRAMDisplay[256];
     alignas(u64) u8 WindowMask[256];  
+    u16 Line;
+    bool GPU3D_IsRendererAccelerated;
+    u32 GPU3D_RenderXPos;
+    u32 GPU_VRAMMap_LCDC;
+    bool ForceBlank;
 };
 struct UnitState {
     /* Config variables - doesn't change */
@@ -77,18 +82,10 @@ struct UnitState {
     u8 EVA, EVB;
     u8 EVY;
 
-    bool ForceBlank;
     bool CaptureLatch;
     u32 CaptureCnt;
 
     u16 MasterBrightness;
-
-    /* Not affected by Unit registers */
-    bool GPU3D_IsRendererAccelerated;
-    u32 GPU3D_RenderXPos;
-    u32 GPU_VRAMMap_LCDC;
-
-    u32 *_3DLine;
 
     // Palette and OAM - 1024 bytes per GPU2D Unit
     u8 *Palette;
