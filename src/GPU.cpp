@@ -63,12 +63,12 @@ enum
                 VRAMDirty need to be reset for the respective VRAM bank.
 */
 
-GPU::GPU(melonDS::NDS& nds, std::unique_ptr<Renderer3D>&& renderer3d, std::unique_ptr<GPU2D::Renderer2D>&& renderer2d) noexcept :
+GPU::GPU(melonDS::NDS& nds, std::unique_ptr<Renderer3D>&& renderer3d) noexcept :
     NDS(nds),
     GPU2D_A(0, *this),
     GPU2D_B(1, *this),
     GPU3D(nds, renderer3d ? std::move(renderer3d) : std::make_unique<SoftRenderer>()),
-    GPU2D_Renderer(renderer2d ? std::move(renderer2d) : std::make_unique<GPU2D::SoftRenderer>(*this))
+    GPU2D_Renderer(std::make_unique<GPU2D::SoftRenderer>())
 {
     NDS.RegisterEventFuncs(Event_LCD, this,
     {
@@ -886,15 +886,32 @@ void GPU::StartHBlank(u32 line) noexcept
         // note: this should start 48 cycles after the scanline start
         if (line < 192)
         {
-            GPU2D_Renderer->DrawScanline(line, &GPU2D_A);
-            GPU2D_Renderer->DrawScanline(line, &GPU2D_B);
+            GPU2D_A.PrepareToDrawScanline(line);
+            GPU2D_B.PrepareToDrawScanline(line);
+
+            if (!GPU3D.IsRendererAccelerated())
+                GPU2D_A.State._3DLine = GPU3D.GetLine(line);
+            else if (GPU2D_A.State.CaptureLatch && (((GPU2D_A.State.CaptureCnt >> 29) & 0x3) != 1))
+            {
+                GPU2D_A.State._3DLine = GPU3D.GetLine(line);
+                //GPU3D::GLRenderer::PrepareCaptureFrame();
+            }
+
+            GPU2D_Renderer->DrawScanline(&GPU2D_A.State, line);
+            GPU2D_Renderer->DrawScanline(&GPU2D_B.State, line);
+
+            GPU2D_A.UpdateMosaicPostScanline();
+            GPU2D_B.UpdateMosaicPostScanline();
         }
 
         // sprites are pre-rendered one scanline in advance
         if (line < 191)
         {
-            GPU2D_Renderer->DrawSprites(line+1, &GPU2D_A);
-            GPU2D_Renderer->DrawSprites(line+1, &GPU2D_B);
+            GPU2D_A.PreDrawSprites(line);
+            GPU2D_B.PreDrawSprites(line);
+
+            GPU2D_Renderer->DrawSprites(&GPU2D_A.State, &GPU2D_A.SpriteBuffer, line+1);
+            GPU2D_Renderer->DrawSprites(&GPU2D_B.State, &GPU2D_B.SpriteBuffer, line+1);
         }
 
         NDS.CheckDMAs(0, 0x02);
@@ -905,8 +922,11 @@ void GPU::StartHBlank(u32 line) noexcept
     }
     else if (VCount == 262)
     {
-        GPU2D_Renderer->DrawSprites(0, &GPU2D_A);
-        GPU2D_Renderer->DrawSprites(0, &GPU2D_B);
+        GPU2D_A.PreDrawSprites(line);
+        GPU2D_B.PreDrawSprites(line);
+
+        GPU2D_Renderer->DrawSprites(&GPU2D_A.State, &GPU2D_A.SpriteBuffer, 0);
+        GPU2D_Renderer->DrawSprites(&GPU2D_B.State, &GPU2D_B.SpriteBuffer, 0);
     }
 
     if (DispStat[0] & (1<<4)) NDS.SetIRQ(0, IRQ_HBlank);
@@ -994,9 +1014,20 @@ void GPU::StartScanline(u32 line) noexcept
     {
         if (line == 0)
         {
-            GPU2D_Renderer->VBlankEnd(&GPU2D_A, &GPU2D_B);
+            GPU2D_Renderer->VBlankEnd(&GPU2D_A.State, &GPU2D_B.State);
             GPU2D_A.VBlankEnd();
             GPU2D_B.VBlankEnd();
+
+            #ifdef OGLRENDERER_ENABLED
+            Renderer3D& renderer3d = GPU3D.GetCurrentRenderer();
+            if (renderer3d.Accelerated)
+            {
+                if ((GPU2D_A.State.CaptureCnt & (1<<31)) && (((GPU2D_A.State.CaptureCnt >> 29) & 0x3) != 1))
+                {
+                    renderer3d.PrepareCaptureFrame();
+                }
+            }
+            #endif
         }
 
         if (RunFIFO)

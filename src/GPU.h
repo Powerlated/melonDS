@@ -22,6 +22,7 @@
 #include <memory>
 
 #include "GPU2D.h"
+#include "GPU2D_Soft.h"
 #include "GPU3D.h"
 #include "NonStupidBitfield.h"
 
@@ -55,7 +56,7 @@ struct VRAMTrackingSet
 class GPU
 {
 public:
-    explicit GPU(melonDS::NDS& nds, std::unique_ptr<Renderer3D>&& renderer3d = nullptr, std::unique_ptr<GPU2D::Renderer2D>&& renderer2d = nullptr) noexcept;
+    explicit GPU(melonDS::NDS& nds, std::unique_ptr<Renderer3D>&& renderer3d = nullptr) noexcept;
     ~GPU() noexcept;
     void Reset() noexcept;
     void Stop() noexcept;
@@ -71,10 +72,6 @@ public:
 
     u8* GetUniqueBankPtr(u32 mask, u32 offset) noexcept;
     const u8* GetUniqueBankPtr(u32 mask, u32 offset) const noexcept;
-
-    void SetRenderer2D(std::unique_ptr<GPU2D::Renderer2D>&& renderer) noexcept { GPU2D_Renderer = std::move(renderer); }
-    [[nodiscard]] const GPU2D::Renderer2D& GetRenderer2D() const noexcept { return *GPU2D_Renderer; }
-    [[nodiscard]] GPU2D::Renderer2D& GetRenderer2D() noexcept { return *GPU2D_Renderer; }
 
     void MapVRAM_AB(u32 bank, u8 cnt) noexcept;
     void MapVRAM_CD(u32 bank, u8 cnt) noexcept;
@@ -700,7 +697,7 @@ private:
 
     u16 VMatch[2] {};
 
-    std::unique_ptr<GPU2D::Renderer2D> GPU2D_Renderer = nullptr;
+    std::unique_ptr<GPU2D::SoftRenderer> GPU2D_Renderer = nullptr;
 
     u32 OAMDirty = 0;
     u32 PaletteDirty = 0;

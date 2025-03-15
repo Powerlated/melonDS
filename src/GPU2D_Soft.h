@@ -27,28 +27,37 @@ class GPU;
 namespace GPU2D
 {
 
-class SoftRenderer : public Renderer2D
+class SoftRenderer 
 {
 public:
-    SoftRenderer(melonDS::GPU& gpu);
-    ~SoftRenderer() override {}
+    SoftRenderer();
+    ~SoftRenderer() {}
 
-    void DrawScanline(u32 line, Unit* unit) override;
-    void DrawSprites(u32 line, Unit* unit) override;
-    void VBlankEnd(Unit* unitA, Unit* unitB) override;
+    void DrawScanline(const UnitState* state, u32 line);
+    void DrawSprites(const UnitState* state, SpriteBuffer *out, u32 line);
+    void VBlankEnd(const UnitState* stateA, const UnitState* stateB);
+    
+    void CheckWindows(const UnitState* state, u32 line);
+    u16* GetBGExtPal(const UnitState* state, u32 slot, u32 pal);
+    u16* GetOBJExtPal(const UnitState* state);
+    void GetBGVRAM(const UnitState* state, u8*& data, u32& mask) const;
+    void GetOBJVRAM(const UnitState* state, u8*& data, u32& mask) const;
+    void UpdateMosaicCounters(const UnitState* state, u32 line);
+
+    void SetFramebuffer(u32* unitA, u32* unitB)
+    {
+        Framebuffer[0] = unitA;
+        Framebuffer[1] = unitB;
+    }
+protected:
+    u32* Framebuffer[2];
 private:
-    melonDS::GPU& GPU;
+    // melonDS::GPU& GPU;
     alignas(8) u32 BGOBJLine[256*3];
-    u32* _3DLine;
-
-    alignas(8) u8 WindowMask[256];
-
-    alignas(8) u32 OBJLine[2][256];
-    alignas(8) u8 OBJWindow[2][256];
-
-    u32 NumSprites[2];
-
     u8* CurBGXMosaicTable;
+
+
+
     array2d<u8, 16, 256> MosaicTable = []() constexpr
     {
         array2d<u8, 16, 256> table {};
@@ -117,31 +126,33 @@ private:
 
         return rb | g | 0xFF000000;
     }
-    u32 ColorComposite(int i, u32 val1, u32 val2) const;
+    u32 ColorComposite(const UnitState *state, int i, u32 val1, u32 val2) const;
 
-    template<u32 bgmode> void DrawScanlineBGMode(u32 line);
-    void DrawScanlineBGMode6(u32 line);
-    void DrawScanlineBGMode7(u32 line);
-    void DrawScanline_BGOBJ(u32 line);
+    template<u32 bgmode> void DrawScanlineBGMode(const UnitState *state, u32 line);
+    void DrawScanlineBGMode6(const UnitState *state, u32 line);
+    void DrawScanlineBGMode7(const UnitState *state, u32 line);
+    void DrawScanline_BGOBJ(const UnitState *state, u32 line);
 
     static void DrawPixel_Normal(u32* dst, u16 color, u32 flag);
     static void DrawPixel_Accel(u32* dst, u16 color, u32 flag);
 
     typedef void (*DrawPixel)(u32* dst, u16 color, u32 flag);
 
-    void DrawBG_3D();
-    template<bool mosaic, DrawPixel drawPixel> void DrawBG_Text(u32 line, u32 bgnum);
-    template<bool mosaic, DrawPixel drawPixel> void DrawBG_Affine(u32 line, u32 bgnum);
-    template<bool mosaic, DrawPixel drawPixel> void DrawBG_Extended(u32 line, u32 bgnum);
-    template<bool mosaic, DrawPixel drawPixel> void DrawBG_Large(u32 line);
+    void DrawBG_3D(const UnitState *state);
+    template<bool mosaic, DrawPixel drawPixel> void DrawBG_Text(const UnitState *state, u32 line, u32 bgnum);
+    template<bool mosaic, DrawPixel drawPixel> void DrawBG_Affine(const UnitState *state, u32 line, u32 bgnum);
+    template<bool mosaic, DrawPixel drawPixel> void DrawBG_Extended(const UnitState *state, u32 line, u32 bgnum);
+    template<bool mosaic, DrawPixel drawPixel> void DrawBG_Large(const UnitState *state, u32 line);
 
-    void ApplySpriteMosaicX();
+    void ApplySpriteMosaicX(const UnitState *state);
     template<DrawPixel drawPixel>
-    void InterleaveSprites(u32 prio);
-    template<bool window> void DrawSprite_Rotscale(u32 num, u32 boundwidth, u32 boundheight, u32 width, u32 height, s32 xpos, s32 ypos);
-    template<bool window> void DrawSprite_Normal(u32 num, u32 width, u32 height, s32 xpos, s32 ypos);
+    void InterleaveSprites(const UnitState *state, u32 prio);
+    template<bool window> void DrawSprite_Rotscale(const UnitState *state, SpriteBuffer *out, u32 num, u32 boundwidth, u32 boundheight, u32 width, u32 height, s32 xpos, s32 ypos);
+    template<bool window> void DrawSprite_Normal(const UnitState *state, SpriteBuffer *out, u32 num, u32 width, u32 height, s32 xpos, s32 ypos);
 
-    void DoCapture(u32 line, u32 width);
+    void CalculateWindowMask(const UnitState *state, u32 line, u8* windowMask, const u8* objWindow);
+
+    void DoCapture(const UnitState *state, u32 line, u32 width);
 };
 
 }
