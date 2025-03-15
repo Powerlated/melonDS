@@ -20,6 +20,7 @@
 #define GPU_H
 
 #include <memory>
+#include <atomic>
 
 #include "Platform.h"
 #include "GPU2D.h"
