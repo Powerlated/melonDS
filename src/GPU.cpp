@@ -868,9 +868,9 @@ void GPU::DisplayFIFO(u32 x) noexcept
     if (x > 0)
     {
         if (x == 8)
-            GPU2D_A.SampleFIFO(0, 5);
+            GPU2D_A.DequeueDispFIFO(0, 5);
         else
-            GPU2D_A.SampleFIFO(x-11, 8);
+            GPU2D_A.DequeueDispFIFO(x-11, 8);
     }
 
     if (x < 256)
@@ -880,7 +880,7 @@ void GPU::DisplayFIFO(u32 x) noexcept
         NDS.ScheduleEvent(Event_DisplayFIFO, true, 6*8, 0, x+8);
     }
     else
-        GPU2D_A.SampleFIFO(253, 3); // sample the remaining pixels
+        GPU2D_A.DequeueDispFIFO(253, 3); // sample the remaining pixels
 }
 
 void GPU::StartFrame() noexcept
@@ -975,13 +975,13 @@ void GPU::DrawScanline2D(u32 line, GPU2D::UnitState *stateA, GPU2D::UnitState *s
     // sprites are pre-rendered one scanline in advance
     if (line < 191)
     {
-        if (stateA) GPU2D_A_Renderer.DrawSprites(stateA, &GPU2D_A.SpriteBuffer, line+1);
-        if (stateB) GPU2D_B_Renderer.DrawSprites(stateB, &GPU2D_B.SpriteBuffer, line+1);
+        if (stateA) GPU2D_A_Renderer.DrawSprites(stateA, line+1);
+        if (stateB) GPU2D_B_Renderer.DrawSprites(stateB, line+1);
     }
 
     if (line == 262) {
-        if (stateA) GPU2D_A_Renderer.DrawSprites(stateA, &GPU2D_A.SpriteBuffer, 0);
-        if (stateB) GPU2D_B_Renderer.DrawSprites(stateB, &GPU2D_B.SpriteBuffer, 0);
+        if (stateA) GPU2D_A_Renderer.DrawSprites(stateA, 0);
+        if (stateB) GPU2D_B_Renderer.DrawSprites(stateB, 0);
     }
 }
 

@@ -34,7 +34,7 @@ public:
     ~SoftRenderer() {}
 
     void DrawScanline(const UnitState* state, u32 line);
-    void DrawSprites(const UnitState* state, SpriteBuffer *out, u32 line);
+    void DrawSprites(const UnitState* state, u32 line);
     void VBlankEnd(const UnitState* stateA, const UnitState* stateB);
     
     void CheckWindows(const UnitState* state, u32 line);
@@ -140,8 +140,8 @@ private:
     void ApplySpriteMosaicX(const UnitState *state);
     template<DrawPixel drawPixel>
     void InterleaveSprites(const UnitState *state, u32 prio);
-    template<bool window> void DrawSprite_Rotscale(const UnitState *state, SpriteBuffer *out, u32 num, u32 boundwidth, u32 boundheight, u32 width, u32 height, s32 xpos, s32 ypos);
-    template<bool window> void DrawSprite_Normal(const UnitState *state, SpriteBuffer *out, u32 num, u32 width, u32 height, s32 xpos, s32 ypos);
+    template<bool window> void DrawSprite_Rotscale(const UnitState *state, u32 num, u32 boundwidth, u32 boundheight, u32 width, u32 height, s32 xpos, s32 ypos);
+    template<bool window> void DrawSprite_Normal(const UnitState *state, u32 num, u32 width, u32 height, s32 xpos, s32 ypos);
 
     void CalculateWindowMask(const UnitState *state, u32 line, u8* windowMask, const u8* objWindow);
 

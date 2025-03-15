@@ -130,9 +130,9 @@ void Unit::Reset()
     State.EVB = 0;
     State.EVY = 0;
 
-    memset(State.DispFIFO, 0, 16*2);
-    State.DispFIFOReadPtr = 0;
-    State.DispFIFOWritePtr = 0;
+    memset(DispFIFO, 0, 16*2);
+    DispFIFOReadPtr = 0;
+    DispFIFOWritePtr = 0;
 
     memset(State.DispFIFOBuffer, 0, 256*2);
 
@@ -180,9 +180,9 @@ void Unit::DoSavestate(Savestate* file)
 
     if (!State.Num)
     {
-        file->VarArray(State.DispFIFO, 16*2);
-        file->Var32(&State.DispFIFOReadPtr);
-        file->Var32(&State.DispFIFOWritePtr);
+        file->VarArray(DispFIFO, 16*2);
+        file->Var32(&DispFIFOReadPtr);
+        file->Var32(&DispFIFOWritePtr);
 
         file->VarArray(State.DispFIFOBuffer, 256*2);
 
@@ -397,12 +397,12 @@ void Unit::Write16(u32 addr, u16 val)
         return;
 
     case 0x068:
-        State.DispFIFO[State.DispFIFOWritePtr] = val;
+        DispFIFO[DispFIFOWritePtr] = val;
         return;
     case 0x06A:
-        State.DispFIFO[State.DispFIFOWritePtr+1] = val;
-        State.DispFIFOWritePtr += 2;
-        State.DispFIFOWritePtr &= 0xF;
+        DispFIFO[DispFIFOWritePtr+1] = val;
+        DispFIFOWritePtr += 2;
+        DispFIFOWritePtr &= 0xF;
         return;
 
     case 0x06C: State.MasterBrightness = val; return;
@@ -537,10 +537,10 @@ void Unit::Write32(u32 addr, u32 val)
         return;
 
     case 0x068:
-        State.DispFIFO[State.DispFIFOWritePtr] = val & 0xFFFF;
-        State.DispFIFO[State.DispFIFOWritePtr+1] = val >> 16;
-        State.DispFIFOWritePtr += 2;
-        State.DispFIFOWritePtr &= 0xF;
+        DispFIFO[DispFIFOWritePtr] = val & 0xFFFF;
+        DispFIFO[DispFIFOWritePtr+1] = val >> 16;
+        DispFIFOWritePtr += 2;
+        DispFIFOWritePtr &= 0xF;
         return;
     }
 
@@ -578,6 +578,10 @@ void Unit::Write32(u32 addr, u32 val)
 
 void Unit::PrepareToDrawScanline(u32 line)
 {
+    State.Prepared = &Prepared;
+    State.Shared = &Shared;
+    State.GPU = &GPU;
+
     // Copy Palette, OAM
     // TODO: only copy when dirty
     if (State.Num == 1) {
@@ -660,14 +664,14 @@ void Unit::PrepareToDrawScanline(u32 line)
                     u8 g = (color & 0x03E0) >> 4;
                     u8 b = (color & 0x7C00) >> 9;
 
-                    State.RenderedVRAMDisplay[i] = r | (g << 8) | (b << 16);
+                    Prepared.RenderedVRAMDisplay[i] = r | (g << 8) | (b << 16);
                 }
             }
             else
             {
                 for (int i = 0; i < 256; i++)
                 {
-                    State.RenderedVRAMDisplay[i] = 0;
+                    Prepared.RenderedVRAMDisplay[i] = 0;
                 }
             }
         }
@@ -675,21 +679,16 @@ void Unit::PrepareToDrawScanline(u32 line)
 
     static_assert(VRAMDirtyGranularity == 512);
     
-    State.PrevScanlineSpriteBuffer = &SpriteBuffer;
-    State.GPU = &GPU;
-
     if (State.DispCnt & 0xE000) {
-        CalculateWindowMask(State.WindowMask, State.PrevScanlineSpriteBuffer->OBJWindow);
+        CalculateWindowMask(Prepared.WindowMask, Shared.OBJWindow);
     } else {
-        memset(State.WindowMask, 0xFF, sizeof(State.WindowMask));
+        memset(Prepared.WindowMask, 0xFF, sizeof(State.Prepared->WindowMask));
     }
 
     // Copy variables for the 2D renderer
     State.GPU3D_IsRendererAccelerated = GPU.GPU3D.IsRendererAccelerated();
     State.GPU3D_RenderXPos = GPU.GPU3D.GetRenderXPos();
-
     State.GPU_VRAMMap_LCDC = GPU.VRAMMap_LCDC;
-
     State.ForceBlank = false;
 
     // scanlines that end up outside of the GPU drawing range
@@ -777,8 +776,8 @@ void Unit::VBlank()
         State.CaptureLatch = false;
     }
 
-    State.DispFIFOReadPtr = 0;
-    State.DispFIFOWritePtr = 0;
+    DispFIFOReadPtr = 0;
+    DispFIFOWritePtr = 0;
 }
 
 void Unit::VBlankEnd()
@@ -797,13 +796,13 @@ void Unit::VBlankEnd()
     //State.OBJMosaicYCount = 0;
 }
 
-void Unit::SampleFIFO(u32 offset, u32 num)
+void Unit::DequeueDispFIFO(u32 offset, u32 num)
 {
     for (u32 i = 0; i < num; i++)
     {
-        u16 val = State.DispFIFO[State.DispFIFOReadPtr];
-        State.DispFIFOReadPtr++;
-        State.DispFIFOReadPtr &= 0xF;
+        u16 val = DispFIFO[DispFIFOReadPtr];
+        DispFIFOReadPtr++;
+        DispFIFOReadPtr &= 0xF;
 
         State.DispFIFOBuffer[offset+i] = val;
     }

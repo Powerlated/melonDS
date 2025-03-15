@@ -28,23 +28,21 @@ class GPU;
 
 namespace GPU2D
 {
-
-struct SpriteBuffer {
+struct SharedBuffers {
     alignas(8) u32 OBJLine[256];
     alignas(8) u8 OBJWindow[256];
     u8 NumSprites;
 };
-
+struct PreparedBuffers {
+    u32 RenderedVRAMDisplay[256];
+    alignas(u64) u8 WindowMask[256];  
+};
 struct UnitState {
     /* Config variables - doesn't change */
     u32 Num;
 
     /* Affected by registers */
     bool Enabled;
-
-    u16 DispFIFO[16];
-    u32 DispFIFOReadPtr;
-    u32 DispFIFOWritePtr;
 
     u16 DispFIFOBuffer[256];
 
@@ -96,9 +94,8 @@ struct UnitState {
     u8 *Palette;
     u8 *OAM; 
 
-    u32 RenderedVRAMDisplay[256];
-    alignas(8) u8 WindowMask[256];  
-    SpriteBuffer *PrevScanlineSpriteBuffer;
+    const PreparedBuffers *Prepared;
+    SharedBuffers *Shared;
     
     /* Pointer to the GPU - TO BE USED FOR FLAT VRAM ACCESS AND DISPLAY CAPTURE ONLY */
     GPU *GPU;
@@ -141,7 +138,7 @@ public:
         return false;
     }
     
-    void SampleFIFO(u32 offset, u32 num);
+    void DequeueDispFIFO(u32 offset, u32 num);
 
     void CheckWindows(u32 line);
     void CalculateWindowMask(u8* windowMask, const u8* objWindow);
@@ -152,12 +149,18 @@ public:
     void VBlank();
     virtual void VBlankEnd();
 
-    UnitState State, ShadowState;
-    SpriteBuffer SpriteBuffer;
+    u16 DispFIFO[16];
+    u32 DispFIFOReadPtr;
+    u32 DispFIFOWritePtr;
 
-    // For threading
+    UnitState State, ShadowState;
+    
+    /* For threading. These are all prepared by Unit::PrepareToDrawScanline() */
     alignas(u64) u8 ShadowPalette[1024];
     alignas(u64) u8 ShadowOAM[1024];
+    
+    PreparedBuffers Prepared;
+    SharedBuffers Shared;
 
 private:
     melonDS::GPU& GPU;

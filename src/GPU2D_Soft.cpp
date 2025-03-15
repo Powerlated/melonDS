@@ -74,7 +74,7 @@ u32 SoftRenderer::ColorComposite(const UnitState *state, int i, u32 val1, u32 va
         if      (flag1 & 0x80) flag1 = 0x10;
         else if (flag1 & 0x40) flag1 = 0x01;
 
-        if ((blendCnt & flag1) && (state->WindowMask[i] & 0x20))
+        if ((blendCnt & flag1) && (state->Prepared->WindowMask[i] & 0x20))
         {
             coloreffect = (blendCnt >> 6) & 0x3;
 
@@ -146,7 +146,7 @@ void SoftRenderer::DrawScanline(const UnitState* state, u32 line)
     case 2: // VRAM display
         {
             for (int i = 0; i < 256; i++) {
-                dst[i] = state->RenderedVRAMDisplay[i];
+                dst[i] = state->Prepared->RenderedVRAMDisplay[i];
             }
         }
         break;
@@ -546,7 +546,7 @@ void SoftRenderer::DrawScanlineBGMode(const UnitState *state, u32 line)
                     DoDrawBG(Text, line, 0);
             }
         }
-        if ((dispCnt & 0x1000) && state->PrevScanlineSpriteBuffer->NumSprites)
+        if ((dispCnt & 0x1000) && state->Shared->NumSprites)
         {
             DoInterleaveSprites(0x40000 | (i<<16));
         }
@@ -575,7 +575,7 @@ void SoftRenderer::DrawScanlineBGMode6(const UnitState *state, u32 line)
                     DrawBG_3D(state);
             }
         }
-        if ((dispCnt & 0x1000) && state->PrevScanlineSpriteBuffer->NumSprites)
+        if ((dispCnt & 0x1000) && state->Shared->NumSprites)
         {
             DoInterleaveSprites(0x40000 | (i<<16))
         }
@@ -607,7 +607,7 @@ void SoftRenderer::DrawScanlineBGMode7(const UnitState *state, u32 line)
                     DoDrawBG(Text, line, 0);
             }
         }
-        if ((dispCnt & 0x1000) && state->PrevScanlineSpriteBuffer->NumSprites)
+        if ((dispCnt & 0x1000) && state->Shared->NumSprites)
         {
             DoInterleaveSprites(0x40000 | (i<<16))
         }
@@ -705,7 +705,7 @@ void SoftRenderer::DrawScanline_BGOBJ(const UnitState *state, u32 line)
 
                     if (bldcnteffect == 1)             bldcnteffect = 0;
                     if (!(state->BlendCnt & 0x0001)) bldcnteffect = 0;
-                    if (!(state->WindowMask[i] & 0x20))       bldcnteffect = 0;
+                    if (!(state->Prepared->WindowMask[i] & 0x20))       bldcnteffect = 0;
 
                     BGOBJLine[i]     = val2;
                     BGOBJLine[256+i] = ColorComposite(state, i, val2, val3);
@@ -721,7 +721,7 @@ void SoftRenderer::DrawScanline_BGOBJ(const UnitState *state, u32 line)
                         eva = flag1 & 0x1F;
                         evb = 16 - eva;
                     }
-                    else if (((state->BlendCnt & target1) && (state->WindowMask[i] & 0x20)) ||
+                    else if (((state->BlendCnt & target1) && (state->Prepared->WindowMask[i] & 0x20)) ||
                             ((flag1 & 0xC0) == 0x80))
                     {
                         eva = state->EVA;
@@ -790,7 +790,7 @@ void SoftRenderer::DrawBG_3D(const UnitState *state)
     {
         for (i = 0; i < 256; i++)
         {
-            if (!(state->WindowMask[i] & 0x01)) continue;
+            if (!(state->Prepared->WindowMask[i] & 0x01)) continue;
 
             BGOBJLine[i+512] = BGOBJLine[i+256];
             BGOBJLine[i+256] = BGOBJLine[i];
@@ -804,7 +804,7 @@ void SoftRenderer::DrawBG_3D(const UnitState *state)
             u32 c = state->_3DLine[i];
 
             if ((c >> 24) == 0) continue;
-            if (!(state->WindowMask[i] & 0x01)) continue;
+            if (!(state->Prepared->WindowMask[i] & 0x01)) continue;
 
             BGOBJLine[i+256] = BGOBJLine[i];
             BGOBJLine[i] = c | 0x40000000;
@@ -908,7 +908,7 @@ void SoftRenderer::DrawBG_Text(const UnitState *state, u32 line, u32 bgnum)
             }
 
             // draw pixel
-            if (state->WindowMask[i] & (1<<bgnum))
+            if (state->Prepared->WindowMask[i] & (1<<bgnum))
             {
                 u32 tilexoff = (curtile & 0x0400) ? (7-(xpos&0x7)) : (xpos&0x7);
                 color = bgvram[(pixelsaddr + tilexoff) & bgvrammask];
@@ -954,7 +954,7 @@ void SoftRenderer::DrawBG_Text(const UnitState *state, u32 line, u32 bgnum)
             }
 
             // draw pixel
-            if (state->WindowMask[i] & (1<<bgnum))
+            if (state->Prepared->WindowMask[i] & (1<<bgnum))
             {
                 u32 tilexoff = (curtile & 0x0400) ? (7-(xpos&0x7)) : (xpos&0x7);
                 if (tilexoff & 0x1)
@@ -1034,7 +1034,7 @@ void SoftRenderer::DrawBG_Affine(const UnitState *state, u32 line, u32 bgnum)
 
     for (int i = 0; i < 256; i++)
     {
-        if (state->WindowMask[i] & (1<<bgnum))
+        if (state->Prepared->WindowMask[i] & (1<<bgnum))
         {
             s32 finalX, finalY;
             if (mosaic)
@@ -1136,7 +1136,7 @@ void SoftRenderer::DrawBG_Extended(const UnitState *state, u32 line, u32 bgnum)
 
             for (int i = 0; i < 256; i++)
             {
-                if (state->WindowMask[i] & (1<<bgnum))
+                if (state->Prepared->WindowMask[i] & (1<<bgnum))
                 {
                     s32 finalX, finalY;
                     if (mosaic)
@@ -1172,7 +1172,7 @@ void SoftRenderer::DrawBG_Extended(const UnitState *state, u32 line, u32 bgnum)
 
             for (int i = 0; i < 256; i++)
             {
-                if (state->WindowMask[i] & (1<<bgnum))
+                if (state->Prepared->WindowMask[i] & (1<<bgnum))
                 {
                     s32 finalX, finalY;
                     if (mosaic)
@@ -1238,7 +1238,7 @@ void SoftRenderer::DrawBG_Extended(const UnitState *state, u32 line, u32 bgnum)
 
         for (int i = 0; i < 256; i++)
         {
-            if (state->WindowMask[i] & (1<<bgnum))
+            if (state->Prepared->WindowMask[i] & (1<<bgnum))
             {
                 s32 finalX, finalY;
                 if (mosaic)
@@ -1339,7 +1339,7 @@ void SoftRenderer::DrawBG_Large(const UnitState *state, u32 line) // BG is alway
 
     for (int i = 0; i < 256; i++)
     {
-        if (state->WindowMask[i] & (1<<2))
+        if (state->Prepared->WindowMask[i] & (1<<2))
         {
             s32 finalX, finalY;
             if (mosaic)
@@ -1382,7 +1382,7 @@ void SoftRenderer::ApplySpriteMosaicX(const UnitState *state)
 
     if (state->OBJMosaicSize[0] == 0) return;
 
-    u32* objLine = state->PrevScanlineSpriteBuffer->OBJLine;
+    u32* objLine = state->Shared->OBJLine;
 
     u8* curOBJXMosaicTable = MosaicTable[state->OBJMosaicSize[0]].data();
 
@@ -1402,7 +1402,7 @@ void SoftRenderer::ApplySpriteMosaicX(const UnitState *state)
 template <SoftRenderer::DrawPixel drawPixel>
 void SoftRenderer::InterleaveSprites(const UnitState *state, u32 prio)
 {
-    u32* objLine = state->PrevScanlineSpriteBuffer->OBJLine;
+    u32* objLine = state->Shared->OBJLine;
     u16* pal = (u16*)&state->Palette[0x200];
 
     if (state->DispCnt & 0x80000000)
@@ -1412,7 +1412,7 @@ void SoftRenderer::InterleaveSprites(const UnitState *state, u32 prio)
         for (u32 i = 0; i < 256; i++)
         {
             if ((objLine[i] & 0x70000) != prio) continue;
-            if (!(state->WindowMask[i] & 0x10))        continue;
+            if (!(state->Prepared->WindowMask[i] & 0x10))        continue;
 
             u16 color;
             u32 pixel = objLine[i];
@@ -1434,7 +1434,7 @@ void SoftRenderer::InterleaveSprites(const UnitState *state, u32 prio)
         for (u32 i = 0; i < 256; i++)
         {
             if ((objLine[i] & 0x70000) != prio) continue;
-            if (!(state->WindowMask[i] & 0x10))        continue;
+            if (!(state->Prepared->WindowMask[i] & 0x10))        continue;
 
             u16 color;
             u32 pixel = objLine[i];
@@ -1459,11 +1459,11 @@ void SoftRenderer::InterleaveSprites(const UnitState *state, u32 prio)
         DrawSprite_##type<false>(__VA_ARGS__); \
     }
 
-void SoftRenderer::DrawSprites(const UnitState *state, SpriteBuffer *out, u32 line)
+void SoftRenderer::DrawSprites(const UnitState *state, u32 line)
 {
-    out->NumSprites = 0;
-    memset(out->OBJLine, 0, 256*4);
-    memset(out->OBJWindow, 0, 256);
+    state->Shared->NumSprites = 0;
+    memset(state->Shared->OBJLine, 0, 256*4);
+    memset(state->Shared->OBJWindow, 0, 256);
     if (!(state->DispCnt & 0x1000)) return;
 
     u16* oam = (u16*)state->OAM;
@@ -1528,9 +1528,9 @@ void SoftRenderer::DrawSprites(const UnitState *state, SpriteBuffer *out, u32 li
 
                 u32 rotparamgroup = (attrib[1] >> 9) & 0x1F;
 
-                DoDrawSprite(Rotscale, state, out, sprnum, boundwidth, boundheight, width, height, xpos, ypos);
+                DoDrawSprite(Rotscale, state, sprnum, boundwidth, boundheight, width, height, xpos, ypos);
 
-                out->NumSprites++;
+                state->Shared->NumSprites++;
             }
             else
             {
@@ -1550,16 +1550,16 @@ void SoftRenderer::DrawSprites(const UnitState *state, SpriteBuffer *out, u32 li
                 if (xpos <= -width)
                     continue;
 
-                DoDrawSprite(Normal, state, out, sprnum, width, height, xpos, ypos);
+                DoDrawSprite(Normal, state, sprnum, width, height, xpos, ypos);
 
-                out->NumSprites++;
+                state->Shared->NumSprites++;
             }
         }
     }
 }
 
 template<bool window>
-void SoftRenderer::DrawSprite_Rotscale(const UnitState *state, SpriteBuffer *out, u32 num, u32 boundwidth, u32 boundheight, u32 width, u32 height, s32 xpos, s32 ypos)
+void SoftRenderer::DrawSprite_Rotscale(const UnitState *state, u32 num, u32 boundwidth, u32 boundheight, u32 width, u32 height, s32 xpos, s32 ypos)
 {
     u16* oam = (u16*)state->OAM;
     u16* attrib = &oam[num * 4];
@@ -1575,8 +1575,8 @@ void SoftRenderer::DrawSprite_Rotscale(const UnitState *state, SpriteBuffer *out
     u32 objvrammask;
     GetOBJVRAM(state, objvram, objvrammask);
 
-    u32* objLine = out->OBJLine;
-    u8* objWindow = out->OBJWindow;
+    u32* objLine = state->Shared->OBJLine;
+    u8* objWindow = state->Shared->OBJWindow;
 
     s32 centerX = boundwidth >> 1;
     s32 centerY = boundheight >> 1;
@@ -1771,7 +1771,7 @@ void SoftRenderer::DrawSprite_Rotscale(const UnitState *state, SpriteBuffer *out
 }
 
 template<bool window>
-void SoftRenderer::DrawSprite_Normal(const UnitState *state, SpriteBuffer *out, u32 num, u32 width, u32 height, s32 xpos, s32 ypos)
+void SoftRenderer::DrawSprite_Normal(const UnitState *state, u32 num, u32 width, u32 height, s32 xpos, s32 ypos)
 {
     u16* oam = (u16*)state->OAM;
     u16* attrib = &oam[num * 4];
@@ -1792,8 +1792,8 @@ void SoftRenderer::DrawSprite_Normal(const UnitState *state, SpriteBuffer *out, 
     u32 objvrammask;
     GetOBJVRAM(state, objvram, objvrammask);
 
-    u32* objLine = out->OBJLine;
-    u8* objWindow = out->OBJWindow;
+    u32* objLine = state->Shared->OBJLine;
+    u8* objWindow = state->Shared->OBJWindow;
 
     // yflip
     if (attrib[1] & 0x2000)
