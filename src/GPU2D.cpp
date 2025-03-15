@@ -581,7 +581,7 @@ void Unit::PrepareToDrawScanline(u32 line)
     // Copy Palette, OAM
     // TODO: only copy when dirty
     if (State.Num == 1) {
-        if (GPU.Is2DThreaded) {
+        if (GPU.Is2DRenderingThreaded) {
             if (GPU.PaletteDirty & 0b1100) {
                 GPU.PaletteDirty &= ~0b1100;
                 memcpy(ShadowPalette, &GPU.Palette[0x400], 1024);
@@ -637,7 +637,7 @@ void Unit::PrepareToDrawScanline(u32 line)
         State.VRAMFlat_BGExtPal = GPU.VRAMFlat_BBGExtPal;
         State.VRAMFlat_OBJExtPal = GPU.VRAMFlat_BOBJExtPal;
     } else {
-        if (GPU.Is2DThreaded) {
+        if (GPU.Is2DRenderingThreaded) {
             if (GPU.PaletteDirty & 0b0011) {
                 GPU.PaletteDirty &= ~0b0011;
                 memcpy(ShadowPalette, &GPU.Palette[0], 1024);
@@ -671,7 +671,7 @@ void Unit::PrepareToDrawScanline(u32 line)
     State.PrevScanlineSpriteBuffer = &SpriteBuffer;
 
     if (State.DispCnt & 0xE000) {
-        CalculateWindowMask(line, State.WindowMask, State.PrevScanlineSpriteBuffer->OBJWindow);
+        CalculateWindowMask(State.WindowMask, State.PrevScanlineSpriteBuffer->OBJWindow);
     } else {
         memset(State.WindowMask, 0xFF, sizeof(State.WindowMask));
     }
@@ -809,7 +809,7 @@ void Unit::CheckWindows(u32 line) {
     else if (line == State.Win1Coords[2]) State.Win1Active |=  0x1;
 }
 
-void Unit::CalculateWindowMask(u32 line, u8* windowMask, const u8* objWindow)
+void Unit::CalculateWindowMask(u8* windowMask, const u8* objWindow)
 {
     for (u32 i = 0; i < 256; i++)
         windowMask[i] = State.WinCnt[2]; // window outside

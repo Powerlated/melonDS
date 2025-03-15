@@ -146,7 +146,7 @@ public:
     void SampleFIFO(u32 offset, u32 num);
 
     void CheckWindows(u32 line);
-    void CalculateWindowMask(u32 line, u8* windowMask, const u8* objWindow);
+    void CalculateWindowMask(u8* windowMask, const u8* objWindow);
     
     void PrepareToDrawScanline(u32 line);
     void PrepareToDrawSprites(u32 line);

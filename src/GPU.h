@@ -21,6 +21,7 @@
 
 #include <memory>
 
+#include "Platform.h"
 #include "GPU2D.h"
 #include "GPU2D_Soft.h"
 #include "GPU3D.h"
@@ -60,6 +61,8 @@ public:
     ~GPU() noexcept;
     void Reset() noexcept;
     void Stop() noexcept;
+
+    void SetThreaded2D(bool threaded) noexcept;
 
     void DoSavestate(Savestate* file) noexcept;
 
@@ -616,7 +619,7 @@ public:
     u32 OAMDirty = 0;
     u32 PaletteDirty = 0;
 
-    bool Is2DThreaded = false;
+    bool Is2DRenderingThreaded = false;
 private:
     void ResetVRAMCache() noexcept;
     void AssignFramebuffers() noexcept;
@@ -702,7 +705,22 @@ private:
 
     u16 VMatch[2] {};
 
+    Platform::Thread* RenderThread2D;
+    std::atomic_bool RenderThread2DRunning = false;
     std::unique_ptr<GPU2D::SoftRenderer> GPU2D_Renderer = nullptr;
+
+    Platform::Semaphore* Sema_2DRenderStart;
+    Platform::Semaphore* Sema_2DRenderDone;
+
+    struct {
+        std::atomic<int> line;
+    } RenderThread2DData;
+
+    void DrawScanline2D(u32 line, GPU2D::UnitState *stateA, GPU2D::UnitState *stateB);
+    void EnableRenderThread2D();
+    void StopRenderThread2D();
+    void RenderThread2DFunc();
+    void SetupRenderThread2D();    
 };
 }
 
