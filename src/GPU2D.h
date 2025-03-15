@@ -90,22 +90,18 @@ struct UnitState {
     u32 GPU3D_RenderXPos;
     u32 GPU_VRAMMap_LCDC;
 
-    u8 *GPU_VRAMFlat_ABG;
-    u8 *GPU_VRAMFlat_BBG;
-    u8 *GPU_VRAMFlat_AOBJ;
-    u8 *GPU_VRAMFlat_BOBJ;
-    u8 *GPU_VRAMFlat_ABGExtPal;
-    u8 *GPU_VRAMFlat_BBGExtPal;
-    u8 *GPU_VRAMFlat_AOBJExtPal;
-    u8 *GPU_VRAMFlat_BOBJExtPal;
-    u8 *GPU_VRAMFlat_Texture;
-    u8 *GPU_VRAMFlat_TexPal;
+    u8 *VRAMFlat_BG;
+    u8 *VRAMFlat_OBJ;
+    u8 *VRAMFlat_BGExtPal;
+    u8 *VRAMFlat_OBJExtPal;
+    u8 *VRAMFlat_Texture;
+    u8 *VRAMFlat_TexPal;
 
     u32 *_3DLine;
 
     // Palette and OAM - 1024 bytes per GPU2D Unit
-    u8 Palette[1024];
-    u8 OAM[1024]; 
+    u8 *Palette;
+    u8 *OAM; 
 
     u32 RenderedVRAMDisplay[256];
     alignas(8) u8 WindowMask[256];
@@ -153,13 +149,17 @@ public:
     void CalculateWindowMask(u32 line, u8* windowMask, const u8* objWindow);
     
     void PrepareToDrawScanline(u32 line);
-    void PreDrawSprites(u32 line);
-    void UpdateMosaicPostScanline();
+    void PrepareToDrawSprites(u32 line);
+    void AfterDrawingScanline();
     void VBlank();
     virtual void VBlankEnd();
 
     UnitState State, ShadowState;
     SpriteBuffer SpriteBuffer;
+
+    // For threading
+    u8 ShadowPalette[1024];
+    u8 ShadowOAM[1024]; 
 
 private:
     melonDS::GPU& GPU;

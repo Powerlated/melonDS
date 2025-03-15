@@ -581,8 +581,21 @@ void Unit::PrepareToDrawScanline(u32 line)
     // Copy Palette, OAM
     // TODO: only copy when dirty
     if (State.Num == 1) {
-        memcpy(State.Palette, &GPU.Palette[0x400], 1024);
-        memcpy(State.OAM, &GPU.OAM[0x400], 1024);
+        if (GPU.Is2DThreaded) {
+            if (GPU.PaletteDirty & 0b1100) {
+                GPU.PaletteDirty &= ~0b1100;
+                memcpy(ShadowPalette, &GPU.Palette[0x400], 1024);
+                State.Palette = ShadowPalette;
+            }
+            if (GPU.OAMDirty & 0b1100) {
+                GPU.OAMDirty &= ~0b1100;
+                memcpy(ShadowOAM, &GPU.OAM[0x400], 1024);
+                State.OAM = ShadowOAM;
+            }
+        } else {
+            State.Palette = &GPU.Palette[0x400];
+            State.OAM = &GPU.OAM[0x400];
+        }
 
         // Render the entire VRAM display scanline here
         bool isVRAMDisplayMode = ((State.DispCnt >> 16) & 3) == 2;
@@ -618,20 +631,44 @@ void Unit::PrepareToDrawScanline(u32 line)
         GPU.MakeVRAMFlat_BBGExtPalCoherent(bgExtPalDirty);
         auto objExtPalDirty = GPU.VRAMDirty_BOBJExtPal.DeriveState(&GPU.VRAMMap_BOBJExtPal, GPU);
         GPU.MakeVRAMFlat_BOBJExtPalCoherent(objExtPalDirty);
-    } else {
-        memcpy(State.Palette, &GPU.Palette[0], 1024);
-        memcpy(State.OAM, &GPU.OAM[0], 1024);
 
+        State.VRAMFlat_BG = GPU.VRAMFlat_BBG;
+        State.VRAMFlat_OBJ = GPU.VRAMFlat_BOBJ;
+        State.VRAMFlat_BGExtPal = GPU.VRAMFlat_BBGExtPal;
+        State.VRAMFlat_OBJExtPal = GPU.VRAMFlat_BOBJExtPal;
+    } else {
+        if (GPU.Is2DThreaded) {
+            if (GPU.PaletteDirty & 0b0011) {
+                GPU.PaletteDirty &= ~0b0011;
+                memcpy(ShadowPalette, &GPU.Palette[0], 1024);
+                State.Palette = ShadowPalette;
+            }
+            if (GPU.OAMDirty & 0b0011) {
+                GPU.OAMDirty &= ~0b0011;
+                memcpy(ShadowOAM, &GPU.OAM[0], 1024);
+                State.OAM = ShadowOAM;
+            }
+        } else {
+            State.Palette = &GPU.Palette[0];
+            State.OAM = &GPU.OAM[0];
+        }
+        
         auto bgDirty = GPU.VRAMDirty_ABG.DeriveState(GPU.VRAMMap_ABG, GPU);
         GPU.MakeVRAMFlat_ABGCoherent(bgDirty);
         auto bgExtPalDirty = GPU.VRAMDirty_ABGExtPal.DeriveState(GPU.VRAMMap_ABGExtPal, GPU);
         GPU.MakeVRAMFlat_ABGExtPalCoherent(bgExtPalDirty);
         auto objExtPalDirty = GPU.VRAMDirty_AOBJExtPal.DeriveState(&GPU.VRAMMap_AOBJExtPal, GPU);
         GPU.MakeVRAMFlat_AOBJExtPalCoherent(objExtPalDirty);
+
+        State.VRAMFlat_BG = GPU.VRAMFlat_ABG;
+        State.VRAMFlat_OBJ = GPU.VRAMFlat_AOBJ;
+        State.VRAMFlat_BGExtPal = GPU.VRAMFlat_ABGExtPal;
+        State.VRAMFlat_OBJExtPal = GPU.VRAMFlat_AOBJExtPal;
     }
 
+    static_assert(VRAMDirtyGranularity == 512);
+    
     State.PrevScanlineSpriteBuffer = &SpriteBuffer;
-
 
     if (State.DispCnt & 0xE000) {
         CalculateWindowMask(line, State.WindowMask, State.PrevScanlineSpriteBuffer->OBJWindow);
@@ -639,28 +676,11 @@ void Unit::PrepareToDrawScanline(u32 line)
         memset(State.WindowMask, 0xFF, sizeof(State.WindowMask));
     }
 
-
     // Copy variables for the 2D renderer
     State.GPU3D_IsRendererAccelerated = GPU.GPU3D.IsRendererAccelerated();
     State.GPU3D_RenderXPos = GPU.GPU3D.GetRenderXPos();
 
     State.GPU_VRAMMap_LCDC = GPU.VRAMMap_LCDC;
-    State.GPU_VRAMFlat_ABG = GPU.VRAMFlat_ABG;
-    State.GPU_VRAMFlat_BBG = GPU.VRAMFlat_BBG;
-    State.GPU_VRAMFlat_AOBJ = GPU.VRAMFlat_AOBJ;
-    State.GPU_VRAMFlat_BOBJ = GPU.VRAMFlat_BOBJ;
-    State.GPU_VRAMFlat_ABGExtPal = GPU.VRAMFlat_ABGExtPal;
-    State.GPU_VRAMFlat_BBGExtPal = GPU.VRAMFlat_BBGExtPal;
-    State.GPU_VRAMFlat_AOBJExtPal = GPU.VRAMFlat_AOBJExtPal;
-    State.GPU_VRAMFlat_BOBJExtPal = GPU.VRAMFlat_BOBJExtPal;
-    State.GPU_VRAMFlat_Texture = GPU.VRAMFlat_Texture;
-    State.GPU_VRAMFlat_TexPal = GPU.VRAMFlat_TexPal;
-    
-    // Increment affine internal registers
-    State.BGXRefInternal[0] += State.BGRotB[0];
-    State.BGYRefInternal[0] += State.BGRotD[0];
-    State.BGXRefInternal[1] += State.BGRotB[1];
-    State.BGYRefInternal[1] += State.BGRotD[1];
 
     State.ForceBlank = false;
 
@@ -690,7 +710,7 @@ void Unit::PrepareToDrawScanline(u32 line)
     }
 }
 
-void Unit::PreDrawSprites(u32 line)
+void Unit::PrepareToDrawSprites(u32 line)
 {
     if (State.Num == 0)
     {
@@ -716,8 +736,14 @@ void Unit::PreDrawSprites(u32 line)
     }
 }
 
-void Unit::UpdateMosaicPostScanline()
+void Unit::AfterDrawingScanline()
 {
+    // Increment affine internal registers
+    State.BGXRefInternal[0] += State.BGRotB[0];
+    State.BGYRefInternal[0] += State.BGRotD[0];
+    State.BGXRefInternal[1] += State.BGRotB[1];
+    State.BGYRefInternal[1] += State.BGRotD[1];
+
     if (State.BGMosaicY >= State.BGMosaicYMax)
     {
         State.BGMosaicY = 0;

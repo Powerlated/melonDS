@@ -627,7 +627,7 @@ void SoftRenderer::DrawScanline_BGOBJ(const UnitState *state, u32 line)
         return;
     }
 
-    u64 backdrop = *(u16*)&state->Palette[0x400];
+    u64 backdrop = *(u16*)&state->Palette[0];
 
     {
         u8 r = (backdrop & 0x001F) << 1;
@@ -2028,42 +2028,36 @@ u16* SoftRenderer::GetBGExtPal(const UnitState *state, u32 slot, u32 pal)
 {
     const u32 PaletteSize = 256 * 2;
     const u32 SlotSize = PaletteSize * 16;
-    return (u16*)&(state->Num == 0
-         ? state->GPU_VRAMFlat_ABGExtPal
-         : state->GPU_VRAMFlat_BBGExtPal)[slot * SlotSize + pal * PaletteSize];
+    return (u16*)&(state->VRAMFlat_BGExtPal)[slot * SlotSize + pal * PaletteSize];
 }
 
 u16* SoftRenderer::GetOBJExtPal(const UnitState *state)
 {
-    return state->Num == 0
-         ? (u16*)state->GPU_VRAMFlat_AOBJExtPal
-         : (u16*)state->GPU_VRAMFlat_BOBJExtPal;
+    return (u16*)state->VRAMFlat_OBJExtPal;
 }
 
 void SoftRenderer::GetBGVRAM(const UnitState *state, u8*& data, u32& mask) const
 {
+    data = state->VRAMFlat_BG;
     if (state->Num == 0)
     {
-        data = state->GPU_VRAMFlat_ABG;
         mask = 0x7FFFF;
     }
     else
     {
-        data = state->GPU_VRAMFlat_BBG;
         mask = 0x1FFFF;
     }
 }
 
 void SoftRenderer::GetOBJVRAM(const UnitState *state, u8*& data, u32& mask) const
 {
+    data = state->VRAMFlat_OBJ;
     if (state->Num == 0)
     {
-        data = state->GPU_VRAMFlat_AOBJ;
         mask = 0x3FFFF;
     }
     else
     {
-        data = state->GPU_VRAMFlat_BOBJ;
         mask = 0x1FFFF;
     }
 }

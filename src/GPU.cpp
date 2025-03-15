@@ -882,13 +882,13 @@ void GPU::StartHBlank(u32 line) noexcept
 
     if (VCount < 192)
     {
+        GPU2D_A.PrepareToDrawScanline(line);
+        GPU2D_B.PrepareToDrawScanline(line);
+
         // draw
         // note: this should start 48 cycles after the scanline start
         if (line < 192)
-        {
-            GPU2D_A.PrepareToDrawScanline(line);
-            GPU2D_B.PrepareToDrawScanline(line);
-
+        {            
             if (!GPU3D.IsRendererAccelerated())
                 GPU2D_A.State._3DLine = GPU3D.GetLine(line);
             else if (GPU2D_A.State.CaptureLatch && (((GPU2D_A.State.CaptureCnt >> 29) & 0x3) != 1))
@@ -897,21 +897,21 @@ void GPU::StartHBlank(u32 line) noexcept
                 //GPU3D::GLRenderer::PrepareCaptureFrame();
             }
 
-            GPU2D_Renderer->DrawScanline(&GPU2D_A.State, line);
-            GPU2D_Renderer->DrawScanline(&GPU2D_B.State, line);
+            GPU2D_Renderer->DrawScanline(&GPU2D_A.ShadowState, line);
+            GPU2D_Renderer->DrawScanline(&GPU2D_B.ShadowState, line);
 
-            GPU2D_A.UpdateMosaicPostScanline();
-            GPU2D_B.UpdateMosaicPostScanline();
+            GPU2D_A.AfterDrawingScanline();
+            GPU2D_B.AfterDrawingScanline();
         }
 
         // sprites are pre-rendered one scanline in advance
         if (line < 191)
         {
-            GPU2D_A.PreDrawSprites(line);
-            GPU2D_B.PreDrawSprites(line);
+            GPU2D_A.PrepareToDrawSprites(line);
+            GPU2D_B.PrepareToDrawSprites(line);
 
-            GPU2D_Renderer->DrawSprites(&GPU2D_A.State, &GPU2D_A.SpriteBuffer, line+1);
-            GPU2D_Renderer->DrawSprites(&GPU2D_B.State, &GPU2D_B.SpriteBuffer, line+1);
+            GPU2D_Renderer->DrawSprites(&GPU2D_A.ShadowState, &GPU2D_A.SpriteBuffer, line+1);
+            GPU2D_Renderer->DrawSprites(&GPU2D_B.ShadowState, &GPU2D_B.SpriteBuffer, line+1);
         }
 
         NDS.CheckDMAs(0, 0x02);
@@ -922,11 +922,11 @@ void GPU::StartHBlank(u32 line) noexcept
     }
     else if (VCount == 262)
     {
-        GPU2D_A.PreDrawSprites(line);
-        GPU2D_B.PreDrawSprites(line);
+        GPU2D_A.PrepareToDrawSprites(line);
+        GPU2D_B.PrepareToDrawSprites(line);
 
-        GPU2D_Renderer->DrawSprites(&GPU2D_A.State, &GPU2D_A.SpriteBuffer, 0);
-        GPU2D_Renderer->DrawSprites(&GPU2D_B.State, &GPU2D_B.SpriteBuffer, 0);
+        GPU2D_Renderer->DrawSprites(&GPU2D_A.ShadowState, &GPU2D_A.SpriteBuffer, 0);
+        GPU2D_Renderer->DrawSprites(&GPU2D_B.ShadowState, &GPU2D_B.SpriteBuffer, 0);
     }
 
     if (DispStat[0] & (1<<4)) NDS.SetIRQ(0, IRQ_HBlank);

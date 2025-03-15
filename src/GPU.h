@@ -493,7 +493,7 @@ public:
         addr &= 0x7FF;
 
         *(T*)&OAM[addr] = val;
-        OAMDirty |= 1 << (addr / 1024);
+        OAMDirty |= 1 << (addr / VRAMDirtyGranularity);
     }
 
     template <typename T>
@@ -612,6 +612,11 @@ public:
 
     alignas(u64) u8 VRAMFlat_Texture[512*1024] {};
     alignas(u64) u8 VRAMFlat_TexPal[128*1024] {};
+
+    u32 OAMDirty = 0;
+    u32 PaletteDirty = 0;
+
+    bool Is2DThreaded = false;
 private:
     void ResetVRAMCache() noexcept;
     void AssignFramebuffers() noexcept;
@@ -698,9 +703,6 @@ private:
     u16 VMatch[2] {};
 
     std::unique_ptr<GPU2D::SoftRenderer> GPU2D_Renderer = nullptr;
-
-    u32 OAMDirty = 0;
-    u32 PaletteDirty = 0;
 };
 }
 
