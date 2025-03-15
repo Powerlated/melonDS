@@ -73,12 +73,22 @@
      </property>
      <layout class="QGridLayout" name="gridLayout_3">
       <item row="0" column="0">
-       <widget class="QCheckBox" name="cbSoftwareThreaded">
+       <widget class="QCheckBox" name="cbIs3DSoftwareRenderingThreaded">
         <property name="whatsThis">
-         <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Run the software renderer on a separate thread. Yields better performance on multi-core CPUs.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+         <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Run the software 3D renderer on a separate thread. Yields better performance on multi-core CPUs.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
         </property>
         <property name="text">
-         <string>Use separate thread</string>
+         <string>Use separate 3D thread</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="0">
+       <widget class="QCheckBox" name="cbIs2DSoftwareRenderingThreaded">
+        <property name="whatsThis">
+         <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Run the software 2D renderer on a separate thread. Yields better performance on multi-core CPUs.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+        </property>
+        <property name="text">
+         <string>Use separate 2D thread</string>
         </property>
        </widget>
       </item>
@@ -211,7 +221,8 @@
   <tabstop>cbGLDisplay</tabstop>
   <tabstop>cbVSync</tabstop>
   <tabstop>sbVSyncInterval</tabstop>
-  <tabstop>cbSoftwareThreaded</tabstop>
+  <tabstop>cbIs3DSoftwareRenderingThreaded</tabstop>
+  <tabstop>cbIs2DSoftwareRenderingThreaded</tabstop>
   <tabstop>cbxGLResolution</tabstop>
   <tabstop>cbBetterPolygons</tabstop>
  </tabstops>

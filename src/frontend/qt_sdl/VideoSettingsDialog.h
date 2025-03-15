@@ -70,7 +70,8 @@ private slots:
     void on_cbBetterPolygons_stateChanged(int state);
     void on_cbxComputeHiResCoords_stateChanged(int state);
 
-    void on_cbSoftwareThreaded_stateChanged(int state);
+    void on_cbIs3DSoftwareRenderingThreaded_stateChanged(int state);
+    void on_cbIs2DSoftwareRenderingThreaded_stateChanged(int state);
 private:
     void setVsyncControlEnable(bool hasOGL);
     void setEnabled();
@@ -84,7 +85,8 @@ private:
     int oldGLDisplay;
     int oldVSync;
     int oldVSyncInterval;
-    int oldSoftThreaded;
+    int oldIs3DSoftwareRenderingThreaded;
+    int oldIs2DSoftwareRenderingThreaded;
     int oldGLScale;
     int oldGLBetterPolygons;
     int oldHiresCoordinates;

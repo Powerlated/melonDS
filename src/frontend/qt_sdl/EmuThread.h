@@ -82,6 +82,8 @@ public:
         msg_ImportSavefile,
 
         msg_EnableCheats,
+
+        msg_UpdateVideoSettings,
     };
 
     struct Message
@@ -125,13 +127,14 @@ public:
 
     void enableCheats(bool enable);
 
+    void updateVideoSettings();
+
     bool emuIsRunning();
     bool emuIsActive();
 
     void initContext(int win);
     void deinitContext(int win);
-    void updateVideoSettings() { videoSettingsDirty = true; }
-    void updateVideoRenderer() { videoSettingsDirty = true; lastVideoRenderer = -1; }
+    void updateVideoRenderer() { lastVideoRenderer = -1; updateVideoSettings(); }
 
     int frontBuffer = 0;
     QMutex frontBufferLock;
@@ -159,7 +162,7 @@ signals:
 private:
     void handleMessages();
 
-    void updateRenderer();
+    void updateRendererSettings();
     void compileShaders();
 
     enum EmuStatusKind
@@ -195,7 +198,6 @@ private:
 
     bool useOpenGL;
     int videoRenderer;
-    bool videoSettingsDirty;
 };
 
 #endif // EMUTHREAD_H

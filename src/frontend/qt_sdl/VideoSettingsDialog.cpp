@@ -44,7 +44,8 @@ void VideoSettingsDialog::setEnabled()
 
     bool softwareRenderer = renderer == renderer3D_Software;
     ui->cbGLDisplay->setEnabled(softwareRenderer);
-    ui->cbSoftwareThreaded->setEnabled(softwareRenderer);
+    ui->cbIs3DSoftwareRenderingThreaded->setEnabled(softwareRenderer);
+    ui->cbIs2DSoftwareRenderingThreaded->setEnabled(softwareRenderer);
     ui->cbxGLResolution->setEnabled(!softwareRenderer);
     ui->cbBetterPolygons->setEnabled(renderer == renderer3D_OpenGL);
     ui->cbxComputeHiResCoords->setEnabled(renderer == renderer3D_OpenGLCompute);
@@ -62,7 +63,8 @@ VideoSettingsDialog::VideoSettingsDialog(QWidget* parent) : QDialog(parent), ui(
     oldGLDisplay = cfg.GetBool("Screen.UseGL");
     oldVSync = cfg.GetBool("Screen.VSync");
     oldVSyncInterval = cfg.GetInt("Screen.VSyncInterval");
-    oldSoftThreaded = cfg.GetBool("3D.Soft.Threaded");
+    oldIs3DSoftwareRenderingThreaded = cfg.GetBool("3D.Soft.Threaded");
+    oldIs2DSoftwareRenderingThreaded = cfg.GetBool("2D.Soft.Threaded");
     oldGLScale = cfg.GetInt("3D.GL.ScaleFactor");
     oldGLBetterPolygons = cfg.GetBool("3D.GL.BetterPolygons");
     oldHiresCoordinates = cfg.GetBool("3D.GL.HiresCoordinates");
@@ -91,7 +93,8 @@ VideoSettingsDialog::VideoSettingsDialog(QWidget* parent) : QDialog(parent), ui(
     ui->cbVSync->setChecked(oldVSync != 0);
     ui->sbVSyncInterval->setValue(oldVSyncInterval);
 
-    ui->cbSoftwareThreaded->setChecked(oldSoftThreaded);
+    ui->cbIs3DSoftwareRenderingThreaded->setChecked(oldIs3DSoftwareRenderingThreaded);
+    ui->cbIs2DSoftwareRenderingThreaded->setChecked(oldIs2DSoftwareRenderingThreaded);
 
     for (int i = 1; i <= 16; i++)
         ui->cbxGLResolution->addItem(QString("%1x native (%2x%3)").arg(i).arg(256*i).arg(192*i));
@@ -134,7 +137,8 @@ void VideoSettingsDialog::on_VideoSettingsDialog_rejected()
     cfg.SetBool("Screen.UseGL", oldGLDisplay);
     cfg.SetBool("Screen.VSync", oldVSync);
     cfg.SetInt("Screen.VSyncInterval", oldVSyncInterval);
-    cfg.SetBool("3D.Soft.Threaded", oldSoftThreaded);
+    cfg.SetBool("3D.Soft.Threaded", oldIs3DSoftwareRenderingThreaded);
+    cfg.SetBool("2D.Soft.Threaded", oldIs2DSoftwareRenderingThreaded);
     cfg.SetInt("3D.GL.ScaleFactor", oldGLScale);
     cfg.SetBool("3D.GL.BetterPolygons", oldGLBetterPolygons);
     cfg.SetBool("3D.GL.HiresCoordinates", oldHiresCoordinates);
@@ -193,10 +197,18 @@ void VideoSettingsDialog::on_sbVSyncInterval_valueChanged(int val)
     emit updateVideoSettings(false);
 }
 
-void VideoSettingsDialog::on_cbSoftwareThreaded_stateChanged(int state)
+void VideoSettingsDialog::on_cbIs3DSoftwareRenderingThreaded_stateChanged(int state)
 {
     auto& cfg = emuInstance->getGlobalConfig();
     cfg.SetBool("3D.Soft.Threaded", (state != 0));
+
+    emit updateVideoSettings(false);
+}
+
+void VideoSettingsDialog::on_cbIs2DSoftwareRenderingThreaded_stateChanged(int state)
+{
+    auto& cfg = emuInstance->getGlobalConfig();
+    cfg.SetBool("2D.Soft.Threaded", (state != 0));
 
     emit updateVideoSettings(false);
 }

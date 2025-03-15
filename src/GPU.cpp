@@ -920,9 +920,8 @@ void GPU::RenderThread2DFunc() {
         // Wait for a notice from the main thread to start rendering (or to stop entirely).
         Platform::Semaphore_Wait(Sema_2DRenderStart);
 
-        if (!RenderThread2DRendering) continue;
-
         if (!RenderThread2DRunning) return;
+        if (!RenderThread2DRendering) continue;
 
         int line = RenderThread2DData.line;
         if (RenderThread2DData.drawBOnly) {
