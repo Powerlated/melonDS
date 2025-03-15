@@ -44,19 +44,12 @@ public:
     void GetOBJVRAM(const UnitState* state, u8*& data, u32& mask) const;
     void UpdateMosaicCounters(const UnitState* state, u32 line);
 
-    void SetFramebuffer(u32* unitA, u32* unitB)
-    {
-        Framebuffer[0] = unitA;
-        Framebuffer[1] = unitB;
-    }
-protected:
-    u32* Framebuffer[2];
 private:
     // melonDS::GPU& GPU;
+    
+    /* THESE ARE NOT STATE, JUST TEMPORARY BUFFERS / VARIABLES */
     alignas(8) u32 BGOBJLine[256*3];
     u8* CurBGXMosaicTable;
-
-
 
     array2d<u8, 16, 256> MosaicTable = []() constexpr
     {

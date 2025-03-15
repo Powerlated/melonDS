@@ -106,7 +106,7 @@ u32 SoftRenderer::ColorComposite(const UnitState *state, int i, u32 val1, u32 va
 void SoftRenderer::DrawScanline(const UnitState* state, u32 line)
 {
     int stride = state->GPU3D_IsRendererAccelerated ? (256*3 + 1) : 256;
-    u32* dst = &Framebuffer[state->Num][stride * line];
+    u32* dst = &state->Framebuffer[stride * line];
 
     if (state->ForceBlank)
     {
@@ -244,8 +244,6 @@ void SoftRenderer::VBlankEnd(const UnitState* stateA, const UnitState* stateB)
 
 void SoftRenderer::DoCapture(const UnitState *state, u32 line, u32 width)
 {
-    // TODO: Figure out display capture, how to get the VRAM back to the main thread
-    /*
     u32 captureCnt = state->CaptureCnt;
     u32 dstvram = (captureCnt >> 16) & 0x3;
 
@@ -254,7 +252,7 @@ void SoftRenderer::DoCapture(const UnitState *state, u32 line, u32 width)
     if (!(state->GPU_VRAMMap_LCDC & (1<<dstvram)))
         return;
 
-    u16* dst = (u16*)GPU.VRAM[dstvram];
+    u16* dst = (u16*)state->GPU->VRAM[dstvram];
     u32 dstaddr = (((captureCnt >> 18) & 0x3) << 14) + (line * width);
 
     // TODO: handle 3D in GPU3D::CurrentRenderer->Accelerated mode!!
@@ -262,7 +260,7 @@ void SoftRenderer::DoCapture(const UnitState *state, u32 line, u32 width)
     u32* srcA;
     if (captureCnt & (1<<24))
     {
-        srcA = _3DLine;
+        srcA = state->_3DLine;
     }
     else
     {
@@ -285,7 +283,7 @@ void SoftRenderer::DoCapture(const UnitState *state, u32 line, u32 width)
                 {
                     // 3D on top, blending
 
-                    u32 _3dval = _3DLine[i];
+                    u32 _3dval = state->_3DLine[i];
                     if ((_3dval >> 24) > 0)
                         val1 = ColorBlend5(_3dval, val1);
                     else
@@ -295,7 +293,7 @@ void SoftRenderer::DoCapture(const UnitState *state, u32 line, u32 width)
                 {
                     // 3D on bottom, blending
 
-                    u32 _3dval = _3DLine[i];
+                    u32 _3dval = state->_3DLine[i];
                     if ((_3dval >> 24) > 0)
                     {
                         u32 eva = (val3 >> 8) & 0x1F;
@@ -310,7 +308,7 @@ void SoftRenderer::DoCapture(const UnitState *state, u32 line, u32 width)
                 {
                     // 3D on top, normal/fade
 
-                    u32 _3dval = _3DLine[i];
+                    u32 _3dval = state->_3DLine[i];
                     if ((_3dval >> 24) > 0)
                     {
                         u32 evy = (val3 >> 8) & 0x1F;
@@ -340,7 +338,7 @@ void SoftRenderer::DoCapture(const UnitState *state, u32 line, u32 width)
     {
         u32 srcvram = (state->DispCnt >> 18) & 0x3;
         if (state->GPU_VRAMMap_LCDC & (1<<srcvram))
-            srcB = (u16*)GPU.VRAM[srcvram];
+            srcB = (u16*)state->GPU->VRAM[srcvram];
 
         if (((state->DispCnt >> 16) & 0x3) != 2)
             srcBaddr += ((captureCnt >> 26) & 0x3) << 14;
@@ -350,7 +348,7 @@ void SoftRenderer::DoCapture(const UnitState *state, u32 line, u32 width)
     srcBaddr &= 0xFFFF;
 
     static_assert(VRAMDirtyGranularity == 512);
-    GPU.VRAMDirty[dstvram][(dstaddr * 2) / VRAMDirtyGranularity] = true;
+    state->GPU->VRAMDirty[dstvram][(dstaddr * 2) / VRAMDirtyGranularity] = true;
 
     switch ((captureCnt >> 29) & 0x3)
     {
@@ -464,8 +462,6 @@ void SoftRenderer::DoCapture(const UnitState *state, u32 line, u32 width)
         }
         break;
     }
-
-    */
 }
 
 #define DoDrawBG(type, line, num) \
@@ -2024,43 +2020,51 @@ void SoftRenderer::DrawSprite_Normal(const UnitState *state, SpriteBuffer *out, 
     }
 }
 
+
 u16* SoftRenderer::GetBGExtPal(const UnitState *state, u32 slot, u32 pal)
 {
     const u32 PaletteSize = 256 * 2;
     const u32 SlotSize = PaletteSize * 16;
-    return (u16*)&(state->VRAMFlat_BGExtPal)[slot * SlotSize + pal * PaletteSize];
+    return (u16*)&(state->Num == 0
+         ? state->GPU->VRAMFlat_ABGExtPal
+         : state->GPU->VRAMFlat_BBGExtPal)[slot * SlotSize + pal * PaletteSize];
 }
 
 u16* SoftRenderer::GetOBJExtPal(const UnitState *state)
 {
-    return (u16*)state->VRAMFlat_OBJExtPal;
+    return state->Num == 0
+         ? (u16*)state->GPU->VRAMFlat_AOBJExtPal
+         : (u16*)state->GPU->VRAMFlat_BOBJExtPal;
 }
 
 void SoftRenderer::GetBGVRAM(const UnitState *state, u8*& data, u32& mask) const
 {
-    data = state->VRAMFlat_BG;
     if (state->Num == 0)
     {
+        data = state->GPU->VRAMFlat_ABG;
         mask = 0x7FFFF;
     }
     else
     {
+        data = state->GPU->VRAMFlat_BBG;
         mask = 0x1FFFF;
     }
 }
 
 void SoftRenderer::GetOBJVRAM(const UnitState *state, u8*& data, u32& mask) const
 {
-    data = state->VRAMFlat_OBJ;
     if (state->Num == 0)
     {
+        data = state->GPU->VRAMFlat_AOBJ;
         mask = 0x3FFFF;
     }
     else
     {
+        data = state->GPU->VRAMFlat_BOBJ;
         mask = 0x1FFFF;
     }
 }
+
 
 }
 }

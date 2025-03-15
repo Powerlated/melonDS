@@ -716,14 +716,16 @@ private:
 
     struct {
         std::atomic<int> line;
+        std::atomic_bool drawBOnly;
     } RenderThread2DData;
 
     void DrawScanline2D(u32 line, GPU2D::UnitState *stateA, GPU2D::UnitState *stateB);
+    void TellRenderThreadToDrawScanline2D(u32 line, bool drawBOnly);
+
     void EnableRenderThread2D();
     void StopRenderThread2D();
     void RenderThread2DFunc();
-    void SetupRenderThread2D();    
-    void DrawScanline2DThreaded(u32 line);
+    void SetupRenderThread2D();
     void WaitForRenderComplete2D();
 };
 }

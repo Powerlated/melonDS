@@ -85,17 +85,10 @@ struct UnitState {
 
     u16 MasterBrightness;
 
-    /* Not affected by registers */
+    /* Not affected by Unit registers */
     bool GPU3D_IsRendererAccelerated;
     u32 GPU3D_RenderXPos;
     u32 GPU_VRAMMap_LCDC;
-
-    u8 *VRAMFlat_BG;
-    u8 *VRAMFlat_OBJ;
-    u8 *VRAMFlat_BGExtPal;
-    u8 *VRAMFlat_OBJExtPal;
-    u8 *VRAMFlat_Texture;
-    u8 *VRAMFlat_TexPal;
 
     u32 *_3DLine;
 
@@ -104,9 +97,14 @@ struct UnitState {
     u8 *OAM; 
 
     u32 RenderedVRAMDisplay[256];
-    alignas(8) u8 WindowMask[256];
-
+    alignas(8) u8 WindowMask[256];  
     SpriteBuffer *PrevScanlineSpriteBuffer;
+    
+    /* Pointer to the GPU - TO BE USED FOR FLAT VRAM ACCESS AND DISPLAY CAPTURE ONLY */
+    GPU *GPU;
+
+    /* Framebuffer */ 
+    u32 *Framebuffer;
 };
 
 class Unit
@@ -159,7 +157,7 @@ public:
 
     // For threading
     u8 ShadowPalette[1024];
-    u8 ShadowOAM[1024]; 
+    u8 ShadowOAM[1024];
 
 private:
     melonDS::GPU& GPU;

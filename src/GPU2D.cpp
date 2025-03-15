@@ -597,6 +597,36 @@ void Unit::PrepareToDrawScanline(u32 line)
             State.OAM = &GPU.OAM[0x400];
         }
 
+        auto bgDirty = GPU.VRAMDirty_BBG.DeriveState(GPU.VRAMMap_BBG, GPU);
+        GPU.MakeVRAMFlat_BBGCoherent(bgDirty);
+        auto bgExtPalDirty = GPU.VRAMDirty_BBGExtPal.DeriveState(GPU.VRAMMap_BBGExtPal, GPU);
+        GPU.MakeVRAMFlat_BBGExtPalCoherent(bgExtPalDirty);
+        auto objExtPalDirty = GPU.VRAMDirty_BOBJExtPal.DeriveState(&GPU.VRAMMap_BOBJExtPal, GPU);
+        GPU.MakeVRAMFlat_BOBJExtPalCoherent(objExtPalDirty);
+    } else {
+        if (GPU.Is2DRenderingThreaded) {
+            if (GPU.PaletteDirty & 0b0011) {
+                GPU.PaletteDirty &= ~0b0011;
+                memcpy(ShadowPalette, &GPU.Palette[0], 1024);
+                State.Palette = ShadowPalette;
+            }
+            if (GPU.OAMDirty & 0b0011) {
+                GPU.OAMDirty &= ~0b0011;
+                memcpy(ShadowOAM, &GPU.OAM[0], 1024);
+                State.OAM = ShadowOAM;
+            }
+        } else {
+            State.Palette = &GPU.Palette[0];
+            State.OAM = &GPU.OAM[0];
+        }
+        
+        auto bgDirty = GPU.VRAMDirty_ABG.DeriveState(GPU.VRAMMap_ABG, GPU);
+        GPU.MakeVRAMFlat_ABGCoherent(bgDirty);
+        auto bgExtPalDirty = GPU.VRAMDirty_ABGExtPal.DeriveState(GPU.VRAMMap_ABGExtPal, GPU);
+        GPU.MakeVRAMFlat_ABGExtPalCoherent(bgExtPalDirty);
+        auto objExtPalDirty = GPU.VRAMDirty_AOBJExtPal.DeriveState(&GPU.VRAMMap_AOBJExtPal, GPU);
+        GPU.MakeVRAMFlat_AOBJExtPalCoherent(objExtPalDirty);
+
         // Render the entire VRAM display scanline here
         bool isVRAMDisplayMode = ((State.DispCnt >> 16) & 3) == 2;
         if (isVRAMDisplayMode) {
@@ -624,51 +654,12 @@ void Unit::PrepareToDrawScanline(u32 line)
                 }
             }
         }
-
-        auto bgDirty = GPU.VRAMDirty_BBG.DeriveState(GPU.VRAMMap_BBG, GPU);
-        GPU.MakeVRAMFlat_BBGCoherent(bgDirty);
-        auto bgExtPalDirty = GPU.VRAMDirty_BBGExtPal.DeriveState(GPU.VRAMMap_BBGExtPal, GPU);
-        GPU.MakeVRAMFlat_BBGExtPalCoherent(bgExtPalDirty);
-        auto objExtPalDirty = GPU.VRAMDirty_BOBJExtPal.DeriveState(&GPU.VRAMMap_BOBJExtPal, GPU);
-        GPU.MakeVRAMFlat_BOBJExtPalCoherent(objExtPalDirty);
-
-        State.VRAMFlat_BG = GPU.VRAMFlat_BBG;
-        State.VRAMFlat_OBJ = GPU.VRAMFlat_BOBJ;
-        State.VRAMFlat_BGExtPal = GPU.VRAMFlat_BBGExtPal;
-        State.VRAMFlat_OBJExtPal = GPU.VRAMFlat_BOBJExtPal;
-    } else {
-        if (GPU.Is2DRenderingThreaded) {
-            if (GPU.PaletteDirty & 0b0011) {
-                GPU.PaletteDirty &= ~0b0011;
-                memcpy(ShadowPalette, &GPU.Palette[0], 1024);
-                State.Palette = ShadowPalette;
-            }
-            if (GPU.OAMDirty & 0b0011) {
-                GPU.OAMDirty &= ~0b0011;
-                memcpy(ShadowOAM, &GPU.OAM[0], 1024);
-                State.OAM = ShadowOAM;
-            }
-        } else {
-            State.Palette = &GPU.Palette[0];
-            State.OAM = &GPU.OAM[0];
-        }
-        
-        auto bgDirty = GPU.VRAMDirty_ABG.DeriveState(GPU.VRAMMap_ABG, GPU);
-        GPU.MakeVRAMFlat_ABGCoherent(bgDirty);
-        auto bgExtPalDirty = GPU.VRAMDirty_ABGExtPal.DeriveState(GPU.VRAMMap_ABGExtPal, GPU);
-        GPU.MakeVRAMFlat_ABGExtPalCoherent(bgExtPalDirty);
-        auto objExtPalDirty = GPU.VRAMDirty_AOBJExtPal.DeriveState(&GPU.VRAMMap_AOBJExtPal, GPU);
-        GPU.MakeVRAMFlat_AOBJExtPalCoherent(objExtPalDirty);
-
-        State.VRAMFlat_BG = GPU.VRAMFlat_ABG;
-        State.VRAMFlat_OBJ = GPU.VRAMFlat_AOBJ;
-        State.VRAMFlat_BGExtPal = GPU.VRAMFlat_ABGExtPal;
-        State.VRAMFlat_OBJExtPal = GPU.VRAMFlat_AOBJExtPal;
     }
 
     static_assert(VRAMDirtyGranularity == 512);
     
     State.PrevScanlineSpriteBuffer = &SpriteBuffer;
+    State.GPU = &GPU;
 
     if (State.DispCnt & 0xE000) {
         CalculateWindowMask(State.WindowMask, State.PrevScanlineSpriteBuffer->OBJWindow);

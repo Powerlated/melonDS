@@ -194,7 +194,8 @@ void GPU::Reset() noexcept
     GPU3D.Reset();
 
     int backbuf = FrontBuffer ? 0 : 1;
-    GPU2D_Renderer->SetFramebuffer(Framebuffer[backbuf][1].get(), Framebuffer[backbuf][0].get());
+    GPU2D_A.State.Framebuffer = Framebuffer[backbuf][1].get();
+    GPU2D_B.State.Framebuffer = Framebuffer[backbuf][0].get();
 
     ResetVRAMCache();
 
@@ -302,11 +303,13 @@ void GPU::AssignFramebuffers() noexcept
     int backbuf = FrontBuffer ? 0 : 1;
     if (NDS.PowerControl9 & (1<<15))
     {
-        GPU2D_Renderer->SetFramebuffer(Framebuffer[backbuf][0].get(), Framebuffer[backbuf][1].get());
+        GPU2D_A.State.Framebuffer = Framebuffer[backbuf][0].get();
+        GPU2D_B.State.Framebuffer = Framebuffer[backbuf][1].get();
     }
     else
     {
-        GPU2D_Renderer->SetFramebuffer(Framebuffer[backbuf][1].get(), Framebuffer[backbuf][0].get());
+        GPU2D_A.State.Framebuffer = Framebuffer[backbuf][1].get();
+        GPU2D_B.State.Framebuffer = Framebuffer[backbuf][0].get();
     }
 }
 
@@ -920,7 +923,11 @@ void GPU::RenderThread2DFunc() {
         if (!RenderThread2DRunning) return;
 
         int line = RenderThread2DData.line;
-        DrawScanline2D(line, &GPU2D_A.ShadowState, &GPU2D_B.ShadowState);
+        if (RenderThread2DData.drawBOnly) {
+            DrawScanline2D(line, nullptr, &GPU2D_B.ShadowState);
+        } else {
+            DrawScanline2D(line, &GPU2D_A.ShadowState, &GPU2D_B.ShadowState);
+        }
 
         RenderThread2DRendering = false;
         Platform::Semaphore_Post(Sema_2DRenderDone);
@@ -956,29 +963,40 @@ void GPU::DrawScanline2D(u32 line, GPU2D::UnitState *stateA, GPU2D::UnitState *s
     // note: this should start 48 cycles after the scanline start
     if (line < 192)
     {            
-        GPU2D_Renderer->DrawScanline(stateA, line);
-        GPU2D_Renderer->DrawScanline(stateB, line);
+        if (stateA) GPU2D_Renderer->DrawScanline(stateA, line);
+        if (stateB) GPU2D_Renderer->DrawScanline(stateB, line);
 
-        GPU2D_A.AfterDrawingScanline();
-        GPU2D_B.AfterDrawingScanline();
+        if (stateA) GPU2D_A.AfterDrawingScanline();
+        if (stateB) GPU2D_B.AfterDrawingScanline();
     }
 
     // sprites are pre-rendered one scanline in advance
     if (line < 191)
     {
-        GPU2D_Renderer->DrawSprites(stateA, &GPU2D_A.SpriteBuffer, line+1);
-        GPU2D_Renderer->DrawSprites(stateB, &GPU2D_B.SpriteBuffer, line+1);
+        if (stateA) GPU2D_Renderer->DrawSprites(stateA, &GPU2D_A.SpriteBuffer, line+1);
+        if (stateB) GPU2D_Renderer->DrawSprites(stateB, &GPU2D_B.SpriteBuffer, line+1);
     }
 
     if (line == 262) {
-        GPU2D_Renderer->DrawSprites(stateA, &GPU2D_A.SpriteBuffer, 0);
-        GPU2D_Renderer->DrawSprites(stateB, &GPU2D_B.SpriteBuffer, 0);
+        if (stateA) GPU2D_Renderer->DrawSprites(stateA, &GPU2D_A.SpriteBuffer, 0);
+        if (stateB) GPU2D_Renderer->DrawSprites(stateB, &GPU2D_B.SpriteBuffer, 0);
     }
 }
 
-void GPU::DrawScanline2DThreaded(u32 line) {
+void GPU::TellRenderThreadToDrawScanline2D(u32 line, bool drawAOnCallingThread) {
     RenderThread2DData.line = line;
-    memcpy(&GPU2D_A.ShadowState, &GPU2D_A.State, sizeof(GPU2D_A.State));
+    RenderThread2DData.drawBOnly = drawAOnCallingThread;
+
+    if (!drawAOnCallingThread) 
+    {
+        memcpy(&GPU2D_A.ShadowState, &GPU2D_A.State, sizeof(GPU2D_A.State));
+    } 
+    else 
+    {
+        // TODO: Figure out why I can't draw A on main thread while B is drawing without Pokemon BW2's display capture freaking out
+        DrawScanline2D(line, &GPU2D_A.State, nullptr);
+    }
+
     memcpy(&GPU2D_B.ShadowState, &GPU2D_B.State, sizeof(GPU2D_B.State));
 
     RenderThread2DRendering = true;
@@ -1019,7 +1037,12 @@ void GPU::StartHBlank(u32 line) noexcept
 
         if (Is2DRenderingThreaded)
         {
-            DrawScanline2DThreaded(line);
+            // When display capture is on, draw A on the main thread
+            if (GPU2D_A.State.CaptureLatch) {
+                TellRenderThreadToDrawScanline2D(line, true);
+            } else {
+                TellRenderThreadToDrawScanline2D(line, false);
+            }
         } 
         else 
         {
@@ -1042,7 +1065,7 @@ void GPU::StartHBlank(u32 line) noexcept
         GPU2D_B.PrepareToDrawSprites(line);
 
         if (Is2DRenderingThreaded) {
-            DrawScanline2DThreaded(262);
+            TellRenderThreadToDrawScanline2D(262, false);
         } else {
             DrawScanline2D(262, &GPU2D_A.State, &GPU2D_B.State);
         }
