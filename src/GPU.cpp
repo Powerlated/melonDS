@@ -67,8 +67,7 @@ GPU::GPU(melonDS::NDS& nds, std::unique_ptr<Renderer3D>&& renderer3d) noexcept :
     NDS(nds),
     GPU2D_A(0, *this),
     GPU2D_B(1, *this),
-    GPU3D(nds, renderer3d ? std::move(renderer3d) : std::make_unique<SoftRenderer>()),
-    GPU2D_Renderer(std::make_unique<GPU2D::SoftRenderer>())
+    GPU3D(nds, renderer3d ? std::move(renderer3d) : std::make_unique<SoftRenderer>())
 {
     Sema_2DRenderStart = Platform::Semaphore_Create();
     Sema_2DRenderDone = Platform::Semaphore_Create();
@@ -920,6 +919,9 @@ void GPU::RenderThread2DFunc() {
     {
         // Wait for a notice from the main thread to start rendering (or to stop entirely).
         Platform::Semaphore_Wait(Sema_2DRenderStart);
+
+        if (!RenderThread2DRendering) continue;
+
         if (!RenderThread2DRunning) return;
 
         int line = RenderThread2DData.line;
@@ -963,8 +965,8 @@ void GPU::DrawScanline2D(u32 line, GPU2D::UnitState *stateA, GPU2D::UnitState *s
     // note: this should start 48 cycles after the scanline start
     if (line < 192)
     {            
-        if (stateA) GPU2D_Renderer->DrawScanline(stateA, line);
-        if (stateB) GPU2D_Renderer->DrawScanline(stateB, line);
+        if (stateA) GPU2D_A_Renderer.DrawScanline(stateA, line);
+        if (stateB) GPU2D_B_Renderer.DrawScanline(stateB, line);
 
         if (stateA) GPU2D_A.AfterDrawingScanline();
         if (stateB) GPU2D_B.AfterDrawingScanline();
@@ -973,13 +975,13 @@ void GPU::DrawScanline2D(u32 line, GPU2D::UnitState *stateA, GPU2D::UnitState *s
     // sprites are pre-rendered one scanline in advance
     if (line < 191)
     {
-        if (stateA) GPU2D_Renderer->DrawSprites(stateA, &GPU2D_A.SpriteBuffer, line+1);
-        if (stateB) GPU2D_Renderer->DrawSprites(stateB, &GPU2D_B.SpriteBuffer, line+1);
+        if (stateA) GPU2D_A_Renderer.DrawSprites(stateA, &GPU2D_A.SpriteBuffer, line+1);
+        if (stateB) GPU2D_B_Renderer.DrawSprites(stateB, &GPU2D_B.SpriteBuffer, line+1);
     }
 
     if (line == 262) {
-        if (stateA) GPU2D_Renderer->DrawSprites(stateA, &GPU2D_A.SpriteBuffer, 0);
-        if (stateB) GPU2D_Renderer->DrawSprites(stateB, &GPU2D_B.SpriteBuffer, 0);
+        if (stateA) GPU2D_A_Renderer.DrawSprites(stateA, &GPU2D_A.SpriteBuffer, 0);
+        if (stateB) GPU2D_B_Renderer.DrawSprites(stateB, &GPU2D_B.SpriteBuffer, 0);
     }
 }
 
@@ -991,19 +993,19 @@ void GPU::TellRenderThreadToDrawScanline2D(u32 line, bool drawAOnCallingThread) 
     {
         memcpy(&GPU2D_A.ShadowState, &GPU2D_A.State, sizeof(GPU2D_A.State));
     } 
-    else 
-    {
-        // TODO: Figure out why I can't draw A on main thread while B is drawing without Pokemon BW2's display capture freaking out
-        DrawScanline2D(line, &GPU2D_A.State, nullptr);
-    }
-
+    
     memcpy(&GPU2D_B.ShadowState, &GPU2D_B.State, sizeof(GPU2D_B.State));
 
     RenderThread2DRendering = true;
     Platform::Semaphore_Post(Sema_2DRenderStart);
+
+    if (drawAOnCallingThread)
+    {
+        DrawScanline2D(line, &GPU2D_A.State, nullptr);
+    }
 }
 
-void GPU::WaitForRenderComplete2D() {
+void GPU::WaitForRenderThreadComplete2D() {
     while (RenderThread2DRendering) {
         Platform::Semaphore_Wait(Sema_2DRenderDone);
     }
@@ -1017,7 +1019,7 @@ void GPU::StartHBlank(u32 line) noexcept
     if (VCount < 192)
     {
         if (Is2DRenderingThreaded) {
-            WaitForRenderComplete2D();
+            WaitForRenderThreadComplete2D();
         }
 
         GPU2D_A.PrepareToDrawScanline(line);
@@ -1058,7 +1060,7 @@ void GPU::StartHBlank(u32 line) noexcept
     else if (VCount == 262)
     {
         if (Is2DRenderingThreaded) {
-            WaitForRenderComplete2D();
+            WaitForRenderThreadComplete2D();
         }
 
         GPU2D_A.PrepareToDrawSprites(line);
@@ -1083,7 +1085,7 @@ void GPU::StartHBlank(u32 line) noexcept
 void GPU::FinishFrame(u32 lines) noexcept
 {
     if (Is2DRenderingThreaded) {
-        WaitForRenderComplete2D();
+        WaitForRenderThreadComplete2D();
     }
 
     FrontBuffer = FrontBuffer ? 0 : 1;
@@ -1160,7 +1162,8 @@ void GPU::StartScanline(u32 line) noexcept
     {
         if (line == 0)
         {
-            GPU2D_Renderer->VBlankEnd(&GPU2D_A.State, &GPU2D_B.State);
+            GPU2D_A_Renderer.VBlankEnd(&GPU2D_A.State, &GPU2D_B.State);
+            GPU2D_B_Renderer.VBlankEnd(&GPU2D_A.State, &GPU2D_B.State);
             GPU2D_A.VBlankEnd();
             GPU2D_B.VBlankEnd();
 

@@ -244,6 +244,7 @@ void SoftRenderer::VBlankEnd(const UnitState* stateA, const UnitState* stateB)
 
 void SoftRenderer::DoCapture(const UnitState *state, u32 line, u32 width)
 {
+    // TODO: Figure out display capture, how to get the VRAM back to the main thread
     u32 captureCnt = state->CaptureCnt;
     u32 dstvram = (captureCnt >> 16) & 0x3;
 

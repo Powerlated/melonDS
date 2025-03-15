@@ -709,7 +709,9 @@ private:
     Platform::Thread* RenderThread2D;
     std::atomic_bool RenderThread2DRunning = false;
     std::atomic_bool RenderThread2DRendering = false;
-    std::unique_ptr<GPU2D::SoftRenderer> GPU2D_Renderer = nullptr;
+    std::atomic_bool RenderThread2DSpinWait = false;
+    GPU2D::SoftRenderer GPU2D_A_Renderer;
+    GPU2D::SoftRenderer GPU2D_B_Renderer;
 
     Platform::Semaphore* Sema_2DRenderStart = nullptr;
     Platform::Semaphore* Sema_2DRenderDone = nullptr;
@@ -726,7 +728,7 @@ private:
     void StopRenderThread2D();
     void RenderThread2DFunc();
     void SetupRenderThread2D();
-    void WaitForRenderComplete2D();
+    void WaitForRenderThreadComplete2D();
 };
 }
 

@@ -583,15 +583,23 @@ void Unit::PrepareToDrawScanline(u32 line)
     if (State.Num == 1) {
         if (GPU.Is2DRenderingThreaded) {
             if (GPU.PaletteDirty & 0b1100) {
+                if (GPU.PaletteDirty & 0b1000)
+                    memcpy(&ShadowPalette[0x200], &GPU.Palette[0x600], 512);
+                if (GPU.PaletteDirty & 0b0100)
+                    memcpy(&ShadowPalette[0], &GPU.Palette[0x400], 512);
+
                 GPU.PaletteDirty &= ~0b1100;
-                memcpy(ShadowPalette, &GPU.Palette[0x400], 1024);
-                State.Palette = ShadowPalette;
             }
             if (GPU.OAMDirty & 0b1100) {
+                if (GPU.OAMDirty & 0b1000)
+                    memcpy(&ShadowOAM[0x200], &GPU.OAM[0x600], 512);
+                if (GPU.OAMDirty & 0b0100)
+                    memcpy(&ShadowOAM[0], &GPU.OAM[0x400], 512);
+
                 GPU.OAMDirty &= ~0b1100;
-                memcpy(ShadowOAM, &GPU.OAM[0x400], 1024);
-                State.OAM = ShadowOAM;
             }
+            State.Palette = ShadowPalette;
+            State.OAM = ShadowOAM;
         } else {
             State.Palette = &GPU.Palette[0x400];
             State.OAM = &GPU.OAM[0x400];
@@ -603,18 +611,27 @@ void Unit::PrepareToDrawScanline(u32 line)
         GPU.MakeVRAMFlat_BBGExtPalCoherent(bgExtPalDirty);
         auto objExtPalDirty = GPU.VRAMDirty_BOBJExtPal.DeriveState(&GPU.VRAMMap_BOBJExtPal, GPU);
         GPU.MakeVRAMFlat_BOBJExtPalCoherent(objExtPalDirty);
+    
     } else {
         if (GPU.Is2DRenderingThreaded) {
-            if (GPU.PaletteDirty & 0b0011) {
+            if (GPU.PaletteDirty & 0b11) {
+                if (GPU.PaletteDirty & 0b10)
+                    memcpy(&ShadowPalette[0x200], &GPU.Palette[0x200], 512);
+                if (GPU.PaletteDirty & 0b01)
+                    memcpy(&ShadowPalette[0], &GPU.Palette[0x000], 512);
+
                 GPU.PaletteDirty &= ~0b0011;
-                memcpy(ShadowPalette, &GPU.Palette[0], 1024);
-                State.Palette = ShadowPalette;
             }
-            if (GPU.OAMDirty & 0b0011) {
+            if (GPU.OAMDirty & 0b11) {
+                if (GPU.OAMDirty & 0b10)
+                    memcpy(&ShadowOAM[0x200], &GPU.OAM[0x200], 512);
+                if (GPU.OAMDirty & 0b01)
+                    memcpy(&ShadowOAM[0], &GPU.OAM[0x000], 512);
+
                 GPU.OAMDirty &= ~0b0011;
-                memcpy(ShadowOAM, &GPU.OAM[0], 1024);
-                State.OAM = ShadowOAM;
             }
+            State.Palette = ShadowPalette;
+            State.OAM = ShadowOAM;
         } else {
             State.Palette = &GPU.Palette[0];
             State.OAM = &GPU.OAM[0];

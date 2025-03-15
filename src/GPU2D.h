@@ -156,8 +156,8 @@ public:
     SpriteBuffer SpriteBuffer;
 
     // For threading
-    u8 ShadowPalette[1024];
-    u8 ShadowOAM[1024];
+    alignas(u64) u8 ShadowPalette[1024];
+    alignas(u64) u8 ShadowOAM[1024];
 
 private:
     melonDS::GPU& GPU;
