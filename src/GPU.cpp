@@ -87,6 +87,8 @@ GPU::GPU(melonDS::NDS& nds, std::unique_ptr<Renderer3D>&& renderer3d) noexcept :
 GPU::~GPU() noexcept
 {
     // All unique_ptr fields are automatically cleaned up
+    Platform::Semaphore_Free(Sema_2DRenderStart);
+    Platform::Semaphore_Free(Sema_2DRenderDone);
 
     NDS.UnregisterEventFuncs(Event_LCD);
     NDS.UnregisterEventFuncs(Event_DisplayFIFO);
@@ -199,8 +201,6 @@ void GPU::Reset() noexcept
     OAMDirty = 0x3;
     PaletteDirty = 0xF;
 
-    SetupRenderThread2D();
-    EnableRenderThread2D();
     SetThreaded2D(true);
 }
 
@@ -894,10 +894,7 @@ void GPU::StartFrame() noexcept
 
 void GPU::EnableRenderThread2D()
 {
-    if (Is2DRenderingThreaded && Sema_2DRenderStart)
-    {
-        // Platform::Semaphore_Post(Sema_2DRenderStart);
-    }
+    Platform::Semaphore_Post(Sema_2DRenderDone);
 }
 
 void GPU::StopRenderThread2D()
@@ -920,10 +917,12 @@ void GPU::RenderThread2DFunc() {
     {
         // Wait for a notice from the main thread to start rendering (or to stop entirely).
         Platform::Semaphore_Wait(Sema_2DRenderStart);
+        if (!RenderThread2DRunning) return;
 
         int line = RenderThread2DData.line;
         DrawScanline2D(line, &GPU2D_A.ShadowState, &GPU2D_B.ShadowState);
 
+        RenderThread2DRendering = false;
         Platform::Semaphore_Post(Sema_2DRenderDone);
     }
 }
@@ -939,6 +938,7 @@ void GPU::SetupRenderThread2D()
             RenderThread2D = Platform::Thread_Create([this]() {
                 RenderThread2DFunc();
             });
+
         }
 
         Platform::Semaphore_Reset(Sema_2DRenderStart);
@@ -951,18 +951,11 @@ void GPU::SetupRenderThread2D()
 }
 
 void GPU::DrawScanline2D(u32 line, GPU2D::UnitState *stateA, GPU2D::UnitState *stateB) {
+
     // draw
     // note: this should start 48 cycles after the scanline start
     if (line < 192)
     {            
-        if (!GPU3D.IsRendererAccelerated())
-            GPU2D_A.State._3DLine = GPU3D.GetLine(line);
-        else if (GPU2D_A.State.CaptureLatch && (((GPU2D_A.State.CaptureCnt >> 29) & 0x3) != 1))
-        {
-            GPU2D_A.State._3DLine = GPU3D.GetLine(line);
-            //GPU3D::GLRenderer::PrepareCaptureFrame();
-        }
-
         GPU2D_Renderer->DrawScanline(stateA, line);
         GPU2D_Renderer->DrawScanline(stateB, line);
 
@@ -983,6 +976,21 @@ void GPU::DrawScanline2D(u32 line, GPU2D::UnitState *stateA, GPU2D::UnitState *s
     }
 }
 
+void GPU::DrawScanline2DThreaded(u32 line) {
+    RenderThread2DData.line = line;
+    memcpy(&GPU2D_A.ShadowState, &GPU2D_A.State, sizeof(GPU2D_A.State));
+    memcpy(&GPU2D_B.ShadowState, &GPU2D_B.State, sizeof(GPU2D_B.State));
+
+    RenderThread2DRendering = true;
+    Platform::Semaphore_Post(Sema_2DRenderStart);
+}
+
+void GPU::WaitForRenderComplete2D() {
+    while (RenderThread2DRendering) {
+        Platform::Semaphore_Wait(Sema_2DRenderDone);
+    }
+}
+
 void GPU::StartHBlank(u32 line) noexcept
 {
     DispStat[0] |= (1<<1);
@@ -990,18 +998,31 @@ void GPU::StartHBlank(u32 line) noexcept
 
     if (VCount < 192)
     {
+        if (Is2DRenderingThreaded) {
+            WaitForRenderComplete2D();
+        }
+
         GPU2D_A.PrepareToDrawScanline(line);
         GPU2D_B.PrepareToDrawScanline(line);
         GPU2D_A.PrepareToDrawSprites(line);
         GPU2D_B.PrepareToDrawSprites(line);
 
-        if (Is2DRenderingThreaded) {
-            RenderThread2DData.line = line;
-            memcpy(&GPU2D_A.ShadowState, &GPU2D_A.State, sizeof(GPU2D_A.State));
-            memcpy(&GPU2D_B.ShadowState, &GPU2D_B.State, sizeof(GPU2D_B.State));
-            Platform::Semaphore_Post(Sema_2DRenderStart);
-            Platform::Semaphore_Wait(Sema_2DRenderDone);
-        } else {
+        if (!GPU3D.IsRendererAccelerated()) 
+        {
+            GPU2D_A.State._3DLine = GPU3D.GetLine(line);
+        } 
+        else if (GPU2D_A.State.CaptureLatch && (((GPU2D_A.State.CaptureCnt >> 29) & 0x3) != 1))
+        {
+            GPU2D_A.State._3DLine = GPU3D.GetLine(line);
+            //GPU3D::GLRenderer::PrepareCaptureFrame();
+        }
+
+        if (Is2DRenderingThreaded)
+        {
+            DrawScanline2DThreaded(line);
+        } 
+        else 
+        {
             DrawScanline2D(line, &GPU2D_A.State, &GPU2D_B.State);
         }
 
@@ -1013,15 +1034,15 @@ void GPU::StartHBlank(u32 line) noexcept
     }
     else if (VCount == 262)
     {
+        if (Is2DRenderingThreaded) {
+            WaitForRenderComplete2D();
+        }
+
         GPU2D_A.PrepareToDrawSprites(line);
         GPU2D_B.PrepareToDrawSprites(line);
 
         if (Is2DRenderingThreaded) {
-            RenderThread2DData.line = 262;
-            memcpy(&GPU2D_A.ShadowState, &GPU2D_A.State, sizeof(GPU2D_A.State));
-            memcpy(&GPU2D_B.ShadowState, &GPU2D_B.State, sizeof(GPU2D_B.State));
-            Platform::Semaphore_Post(Sema_2DRenderStart);
-            Platform::Semaphore_Wait(Sema_2DRenderDone);
+            DrawScanline2DThreaded(262);
         } else {
             DrawScanline2D(262, &GPU2D_A.State, &GPU2D_B.State);
         }
@@ -1038,6 +1059,10 @@ void GPU::StartHBlank(u32 line) noexcept
 
 void GPU::FinishFrame(u32 lines) noexcept
 {
+    if (Is2DRenderingThreaded) {
+        WaitForRenderComplete2D();
+    }
+
     FrontBuffer = FrontBuffer ? 0 : 1;
     AssignFramebuffers();
 

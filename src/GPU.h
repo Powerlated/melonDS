@@ -708,10 +708,11 @@ private:
 
     Platform::Thread* RenderThread2D;
     std::atomic_bool RenderThread2DRunning = false;
+    std::atomic_bool RenderThread2DRendering = false;
     std::unique_ptr<GPU2D::SoftRenderer> GPU2D_Renderer = nullptr;
 
-    Platform::Semaphore* Sema_2DRenderStart;
-    Platform::Semaphore* Sema_2DRenderDone;
+    Platform::Semaphore* Sema_2DRenderStart = nullptr;
+    Platform::Semaphore* Sema_2DRenderDone = nullptr;
 
     struct {
         std::atomic<int> line;
@@ -722,6 +723,8 @@ private:
     void StopRenderThread2D();
     void RenderThread2DFunc();
     void SetupRenderThread2D();    
+    void DrawScanline2DThreaded(u32 line);
+    void WaitForRenderComplete2D();
 };
 }
 
