@@ -143,7 +143,6 @@ void EmuThread::run()
 
     double fastForwardFpsTimer = 0.0;
 
-    u32 winUpdateCount = 0, winUpdateFreq = 1;
     u8 dsiVolumeLevel = 0x1F;
 
     char melontitle[100];
@@ -326,13 +325,6 @@ void EmuThread::run()
 #ifdef MELONCAP
             MelonCap::Update();
 #endif // MELONCAP
-
-            winUpdateCount++;
-            if (winUpdateCount >= winUpdateFreq && !useOpenGL)
-            {
-                emit windowUpdate();
-                winUpdateCount = 0;
-            }
             
             if (emuInstance->hotkeyPressed(HK_FastForwardToggle)) emuInstance->fastForwardToggled = !emuInstance->fastForwardToggled;
             if (emuInstance->hotkeyPressed(HK_SlowMoToggle)) emuInstance->slowmoToggled = !emuInstance->slowmoToggled;
@@ -419,6 +411,7 @@ void EmuThread::run()
 
                 if (!useOpenGL)
                 {
+                    emit windowUpdate();
                     frontBufferLock.lock();
                     frontBuffer = emuInstance->nds->GPU.FrontBuffer;
                     frontBufferLock.unlock();
@@ -430,6 +423,7 @@ void EmuThread::run()
                 }
 
                 int fps = round(measuredFpsEmaNew);
+
                 
                 nframes++;
                 if (nframes >= 30)
@@ -437,10 +431,6 @@ void EmuThread::run()
                     nframes = 0;
 
                     float fpstarget = 1.0/frametimeStep;
-
-                    winUpdateFreq = fps / (u32)round(fpstarget);
-                    if (winUpdateFreq < 1)
-                        winUpdateFreq = 1;
                         
                     double actualNdsFps = (59.8261 * 263.0) / nlines;
                     int inst = emuInstance->instanceID;
