@@ -191,6 +191,9 @@ void Unit::DoSavestate(Savestate* file)
 
     file->Var32(&State.Win0Active);
     file->Var32(&State.Win1Active);
+
+    file->VarArray(ShadowPalette, sizeof(ShadowPalette));
+    file->VarArray(ShadowOAM, sizeof(ShadowOAM));
 }
 
 u8 Unit::Read8(u32 addr)
