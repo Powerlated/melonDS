@@ -434,7 +434,7 @@ void EmuThread::run()
                 if (winUpdateFreq < 1)
                     winUpdateFreq = 1;
                     
-                double actualNdsFps = (59.8261 * 263.0) / nlines;
+                double actualNdsFps = (ndsTrueFramerate * 263.0) / nlines;
                 int inst = emuInstance->instanceID;
                 if (inst == 0)
                     snprintf(melontitle, sizeof(melontitle), "[%d/%.0f] melonDS " MELONDS_VERSION, fps, actualNdsFps);
@@ -671,6 +671,10 @@ void EmuThread::handleMessages()
         case msg_EnableCheats:
             emuInstance->enableCheats(msg.param.value<bool>());
             break;
+
+        case msg_SetAudioInterpolation:
+            emuInstance->nds->SPU.SetInterpolation(msg.param.value<AudioInterpolationOption>());
+            break;
         }
 
         msgSemaphore.release();
@@ -851,6 +855,12 @@ int EmuThread::importSavefile(const QString& filename)
 void EmuThread::enableCheats(bool enable)
 {
     sendMessage({.type = msg_EnableCheats, .param = enable});
+    waitMessage();
+}
+
+void EmuThread::setAudioInterpolation(int audioInterpolation)
+{
+    sendMessage({.type = msg_SetAudioInterpolation, .param = audioInterpolation});
     waitMessage();
 }
 

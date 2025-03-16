@@ -65,189 +65,88 @@ const s16 SPUChannel::PSGTable[8][8] =
     {-0x7FFF, -0x7FFF, -0x7FFF, -0x7FFF, -0x7FFF, -0x7FFF, -0x7FFF, -0x7FFF}
 };
 
-template <typename T>
-constexpr T ipow(T num, unsigned int pow)
-{
-    T product = 1;
-    for (int i = 0; i < pow; ++i)
-    {
-        product *= num;
-    }
+const int RESAMPLER_BUF_LEN = 512;
+const int RESAMPLER_IR_LEN = 24;
+const int RESAMPLER_OUT_FS = 32768; // Fs = frequency, sample (i.e. sample rate)
+const int RESAMPLER_CUTOFF = 15360; 
 
-    return product;
-}
-
-template <typename T>
-constexpr T factorial(T num)
-{
-    T product = 1;
-    for (T i = 1; i <= num; ++i)
-    {
-        product *= i;
-    }
-
-    return product;
-}
-
-// We can't use std::cos in constexpr functions until C++26,
-// so we need to compute the cosine ourselves with the Taylor series.
-// Code adapted from https://prosepoetrycode.potterpcs.net/2015/07/a-simple-constexpr-power-function-c/
-template <int Iterations = 10>
-constexpr double cosine (double theta)
-{
-    return (ipow(-1, Iterations) * ipow(theta, 2 * Iterations)) /
-            static_cast<double>(factorial(2ull * Iterations))
-        + cosine<Iterations-1>(theta);
-}
-
-template <>
-constexpr double cosine<0> (double theta)
-{
-    return 1.0;
-}
-
-// generate interpolation tables
-// values are 1:1:14 fixed-point
-constexpr std::array<s16, 0x100> InterpCos = []() constexpr {
-    std::array<s16, 0x100> interp {};
-
-    for (int i = 0; i < 0x100; i++)
-    {
-        float ratio = (i * M_PI) / 255.0f;
-        ratio = 1.0f - cosine(ratio);
-
-        interp[i] = (s16)(ratio * 0x2000);
-    }
-
-    return interp;
-}();
-
-constexpr array2d<s16, 0x100, 4> InterpCubic = []() constexpr {
-    array2d<s16, 0x100, 4> interp {};
-
-    for (int i = 0; i < 0x100; i++)
-    {
-        s32 i1 = i << 6;
-        s32 i2 = (i * i) >> 2;
-        s32 i3 = (i * i * i) >> 10;
-
-        interp[i][0] = -i3 + 2*i2 - i1;
-        interp[i][1] = i3 - 2*i2 + 0x4000;
-        interp[i][2] = -i3 + i2 + i1;
-        interp[i][3] = i3 - i2;
-    }
-
-    return interp;
-}();
-
-const std::array<s16, 0x200> InterpSNESGauss = {
-    0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000,
-    0x001, 0x001, 0x001, 0x001, 0x001, 0x001, 0x001, 0x001, 0x001, 0x001, 0x001, 0x002, 0x002, 0x002, 0x002, 0x002,
-    0x002, 0x002, 0x003, 0x003, 0x003, 0x003, 0x003, 0x004, 0x004, 0x004, 0x004, 0x004, 0x005, 0x005, 0x005, 0x005,
-    0x006, 0x006, 0x006, 0x006, 0x007, 0x007, 0x007, 0x008, 0x008, 0x008, 0x009, 0x009, 0x009, 0x00A, 0x00A, 0x00A,
-    0x00B, 0x00B, 0x00B, 0x00C, 0x00C, 0x00D, 0x00D, 0x00E, 0x00E, 0x00F, 0x00F, 0x00F, 0x010, 0x010, 0x011, 0x011,
-    0x012, 0x013, 0x013, 0x014, 0x014, 0x015, 0x015, 0x016, 0x017, 0x017, 0x018, 0x018, 0x019, 0x01A, 0x01B, 0x01B,
-    0x01C, 0x01D, 0x01D, 0x01E, 0x01F, 0x020, 0x020, 0x021, 0x022, 0x023, 0x024, 0x024, 0x025, 0x026, 0x027, 0x028,
-    0x029, 0x02A, 0x02B, 0x02C, 0x02D, 0x02E, 0x02F, 0x030, 0x031, 0x032, 0x033, 0x034, 0x035, 0x036, 0x037, 0x038,
-    0x03A, 0x03B, 0x03C, 0x03D, 0x03E, 0x040, 0x041, 0x042, 0x043, 0x045, 0x046, 0x047, 0x049, 0x04A, 0x04C, 0x04D,
-    0x04E, 0x050, 0x051, 0x053, 0x054, 0x056, 0x057, 0x059, 0x05A, 0x05C, 0x05E, 0x05F, 0x061, 0x063, 0x064, 0x066,
-    0x068, 0x06A, 0x06B, 0x06D, 0x06F, 0x071, 0x073, 0x075, 0x076, 0x078, 0x07A, 0x07C, 0x07E, 0x080, 0x082, 0x084,
-    0x086, 0x089, 0x08B, 0x08D, 0x08F, 0x091, 0x093, 0x096, 0x098, 0x09A, 0x09C, 0x09F, 0x0A1, 0x0A3, 0x0A6, 0x0A8,
-    0x0AB, 0x0AD, 0x0AF, 0x0B2, 0x0B4, 0x0B7, 0x0BA, 0x0BC, 0x0BF, 0x0C1, 0x0C4, 0x0C7, 0x0C9, 0x0CC, 0x0CF, 0x0D2,
-    0x0D4, 0x0D7, 0x0DA, 0x0DD, 0x0E0, 0x0E3, 0x0E6, 0x0E9, 0x0EC, 0x0EF, 0x0F2, 0x0F5, 0x0F8, 0x0FB, 0x0FE, 0x101,
-    0x104, 0x107, 0x10B, 0x10E, 0x111, 0x114, 0x118, 0x11B, 0x11E, 0x122, 0x125, 0x129, 0x12C, 0x130, 0x133, 0x137,
-    0x13A, 0x13E, 0x141, 0x145, 0x148, 0x14C, 0x150, 0x153, 0x157, 0x15B, 0x15F, 0x162, 0x166, 0x16A, 0x16E, 0x172,
-    0x176, 0x17A, 0x17D, 0x181, 0x185, 0x189, 0x18D, 0x191, 0x195, 0x19A, 0x19E, 0x1A2, 0x1A6, 0x1AA, 0x1AE, 0x1B2,
-    0x1B7, 0x1BB, 0x1BF, 0x1C3, 0x1C8, 0x1CC, 0x1D0, 0x1D5, 0x1D9, 0x1DD, 0x1E2, 0x1E6, 0x1EB, 0x1EF, 0x1F3, 0x1F8,
-    0x1FC, 0x201, 0x205, 0x20A, 0x20F, 0x213, 0x218, 0x21C, 0x221, 0x226, 0x22A, 0x22F, 0x233, 0x238, 0x23D, 0x241,
-    0x246, 0x24B, 0x250, 0x254, 0x259, 0x25E, 0x263, 0x267, 0x26C, 0x271, 0x276, 0x27B, 0x280, 0x284, 0x289, 0x28E,
-    0x293, 0x298, 0x29D, 0x2A2, 0x2A6, 0x2AB, 0x2B0, 0x2B5, 0x2BA, 0x2BF, 0x2C4, 0x2C9, 0x2CE, 0x2D3, 0x2D8, 0x2DC,
-    0x2E1, 0x2E6, 0x2EB, 0x2F0, 0x2F5, 0x2FA, 0x2FF, 0x304, 0x309, 0x30E, 0x313, 0x318, 0x31D, 0x322, 0x326, 0x32B,
-    0x330, 0x335, 0x33A, 0x33F, 0x344, 0x349, 0x34E, 0x353, 0x357, 0x35C, 0x361, 0x366, 0x36B, 0x370, 0x374, 0x379,
-    0x37E, 0x383, 0x388, 0x38C, 0x391, 0x396, 0x39B, 0x39F, 0x3A4, 0x3A9, 0x3AD, 0x3B2, 0x3B7, 0x3BB, 0x3C0, 0x3C5,
-    0x3C9, 0x3CE, 0x3D2, 0x3D7, 0x3DC, 0x3E0, 0x3E5, 0x3E9, 0x3ED, 0x3F2, 0x3F6, 0x3FB, 0x3FF, 0x403, 0x408, 0x40C,
-    0x410, 0x415, 0x419, 0x41D, 0x421, 0x425, 0x42A, 0x42E, 0x432, 0x436, 0x43A, 0x43E, 0x442, 0x446, 0x44A, 0x44E,
-    0x452, 0x455, 0x459, 0x45D, 0x461, 0x465, 0x468, 0x46C, 0x470, 0x473, 0x477, 0x47A, 0x47E, 0x481, 0x485, 0x488,
-    0x48C, 0x48F, 0x492, 0x496, 0x499, 0x49C, 0x49F, 0x4A2, 0x4A6, 0x4A9, 0x4AC, 0x4AF, 0x4B2, 0x4B5, 0x4B7, 0x4BA,
-    0x4BD, 0x4C0, 0x4C3, 0x4C5, 0x4C8, 0x4CB, 0x4CD, 0x4D0, 0x4D2, 0x4D5, 0x4D7, 0x4D9, 0x4DC, 0x4DE, 0x4E0, 0x4E3,
-    0x4E5, 0x4E7, 0x4E9, 0x4EB, 0x4ED, 0x4EF, 0x4F1, 0x4F3, 0x4F5, 0x4F6, 0x4F8, 0x4FA, 0x4FB, 0x4FD, 0x4FF, 0x500,
-    0x502, 0x503, 0x504, 0x506, 0x507, 0x508, 0x50A, 0x50B, 0x50C, 0x50D, 0x50E, 0x50F, 0x510, 0x511, 0x511, 0x512,
-    0x513, 0x514, 0x514, 0x515, 0x516, 0x516, 0x517, 0x517, 0x517, 0x518, 0x518, 0x518, 0x518, 0x518, 0x519, 0x519
-};
-
-SPU::SPU(melonDS::NDS& nds, AudioBitDepth bitdepth, AudioInterpolation interpolation) :
+SPU::SPU(melonDS::NDS& nds, AudioBitDepthOption bitdepth, AudioInterpolationOption interpolation, float timeScale) :
     NDS(nds),
     Channels {
-        SPUChannel(0, nds, interpolation),
-        SPUChannel(1, nds, interpolation),
-        SPUChannel(2, nds, interpolation),
-        SPUChannel(3, nds, interpolation),
-        SPUChannel(4, nds, interpolation),
-        SPUChannel(5, nds, interpolation),
-        SPUChannel(6, nds, interpolation),
-        SPUChannel(7, nds, interpolation),
-        SPUChannel(8, nds, interpolation),
-        SPUChannel(9, nds, interpolation),
-        SPUChannel(10, nds, interpolation),
-        SPUChannel(11, nds, interpolation),
-        SPUChannel(12, nds, interpolation),
-        SPUChannel(13, nds, interpolation),
-        SPUChannel(14, nds, interpolation),
-        SPUChannel(15, nds, interpolation),
+        SPUChannel(0, nds),
+        SPUChannel(1, nds),
+        SPUChannel(2, nds),
+        SPUChannel(3, nds),
+        SPUChannel(4, nds),
+        SPUChannel(5, nds),
+        SPUChannel(6, nds),
+        SPUChannel(7, nds),
+        SPUChannel(8, nds),
+        SPUChannel(9, nds),
+        SPUChannel(10, nds),
+        SPUChannel(11, nds),
+        SPUChannel(12, nds),
+        SPUChannel(13, nds),
+        SPUChannel(14, nds),
+        SPUChannel(15, nds),    
     },
+    InterpolationType(interpolation),
     Capture {
         SPUCaptureUnit(0, nds),
         SPUCaptureUnit(1, nds),
     },
-    AudioLock(Platform::Mutex_Create()),
-    Degrade10Bit(bitdepth == AudioBitDepth::_10Bit || (nds.ConsoleType == 1 && bitdepth == AudioBitDepth::Auto))
+    Degrade10Bit(bitdepth == AudioBitDepthOption::_10Bit || (nds.ConsoleType == 1 && bitdepth == AudioBitDepthOption::Auto)),
+    Resampler(MelonResampler(RESAMPLER_BUF_LEN, RESAMPLER_IR_LEN, RESAMPLER_OUT_FS, RESAMPLER_CUTOFF))
 {
-    NDS.RegisterEventFuncs(Event_SPU, this, {MakeEventThunk(SPU, Mix)});
+    NDS.RegisterEventFuncs(Event_SPU, this, {MakeEventThunk(SPU, Run)});
 
     ApplyBias = true;
     Degrade10Bit = false;
 
-    memset(OutputFrontBuffer, 0, 2*OutputBufferSize*2);
+    memset(OutputBuffer, 0, sizeof(OutputBuffer));
 
-    OutputBackbufferWritePosition = 0;
-    OutputFrontBufferReadPosition = 0;
-    OutputFrontBufferWritePosition = 0;
+    OutputBufferReadPosition = 0;
+    OutputBufferWritePosition = 0;
+
+    SetTimeScale(timeScale);
 }
 
 SPU::~SPU()
 {
     Platform::Mutex_Free(AudioLock);
     AudioLock = nullptr;
-
     NDS.UnregisterEventFuncs(Event_SPU);
 }
 
 void SPU::Reset()
 {
-    InitOutput();
+    InitOutputBuffer();
 
-    Cnt = 0;
+    SetCnt(0);
+
     MasterVolume = 0;
     Bias = 0;
 
-    for (int i = 0; i < 16; i++)
+    for (int i = 0; i < 16; i++) {
+        ChannelSetCnt(Channels[i], 0);
         Channels[i].Reset();
+    }
 
     Capture[0].Reset();
     Capture[1].Reset();
+
+    Resampler.Reset();
+    InterpCycles = 0;
 
     NDS.ScheduleEvent(Event_SPU, false, 1024, 0, 0);
 }
 
 void SPU::Stop()
 {
-    Platform::Mutex_Lock(AudioLock);
-    memset(OutputFrontBuffer, 0, 2*OutputBufferSize*2);
+    memset(OutputBuffer, 0, sizeof(OutputBuffer));
 
-    OutputBackbufferWritePosition = 0;
-    OutputFrontBufferReadPosition = 0;
-    OutputFrontBufferWritePosition = 0;
-    Platform::Mutex_Unlock(AudioLock);
+    OutputBufferReadPosition = 0;
+    OutputBufferWritePosition = 0;
 }
 
 void SPU::DoSavestate(Savestate* file)
@@ -271,11 +170,18 @@ void SPU::SetPowerCnt(u32 val)
     // TODO
 }
 
-
-void SPU::SetInterpolation(AudioInterpolation type)
+void SPU::SetInterpolation(AudioInterpolationOption type)
 {
-    for (SPUChannel& channel : Channels)
-        channel.InterpType = type;
+    InterpolationType = type;
+    for (int i = 0; i < 16; i++) {
+        Resampler.AddSample(i, InterpCycles * spuCycleT, 0, 0);
+    }
+}
+
+void SPU::SetTimeScale(float timeScale)
+{
+    spuCycleT = timeScale / (33513982 / 2);
+    Resampler.Reset();
 }
 
 void SPU::SetBias(u16 bias)
@@ -293,26 +199,25 @@ void SPU::SetDegrade10Bit(bool enable)
     Degrade10Bit = enable;
 }
 
-void SPU::SetDegrade10Bit(AudioBitDepth depth)
+void SPU::SetDegrade10Bit(AudioBitDepthOption depth)
 {
     switch (depth)
     {
-    case AudioBitDepth::Auto:
+    case AudioBitDepthOption::Auto:
         Degrade10Bit = (NDS.ConsoleType == 0);
         break;
-    case AudioBitDepth::_10Bit:
+    case AudioBitDepthOption::_10Bit:
         Degrade10Bit = true;
         break;
-    case AudioBitDepth::_16Bit:
+    case AudioBitDepthOption::_16Bit:
         Degrade10Bit = false;
         break;
     }
 }
 
-SPUChannel::SPUChannel(u32 num, melonDS::NDS& nds, AudioInterpolation interpolation) :
+SPUChannel::SPUChannel(u32 num, melonDS::NDS& nds) :
     NDS(nds),
-    Num(num),
-    InterpType(interpolation)
+    Num(num)
 {
 }
 
@@ -320,7 +225,6 @@ void SPUChannel::Reset()
 {
     KeyOn = false;
 
-    SetCnt(0);
     SrcAddr = 0;
     TimerReload = 0;
     LoopPos = 0;
@@ -350,8 +254,9 @@ void SPUChannel::DoSavestate(Savestate* file)
     file->Var8((u8*)&KeyOn);
     file->Var32(&Timer);
     file->Var32((u32*)&Pos);
-    file->VarArray(PrevSample, sizeof(PrevSample));
+
     file->Var16((u16*)&CurSample);
+    file->Var32((u32*)&CurVal);
     file->Var16(&NoiseVal);
 
     file->Var32((u32*)&ADPCMVal);
@@ -365,6 +270,9 @@ void SPUChannel::DoSavestate(Savestate* file)
     file->Var32(&FIFOReadOffset);
     file->Var32(&FIFOLevel);
     file->VarArray(FIFO, sizeof(FIFO));
+
+    file->Var32((u32*)&CleanMixGainL);
+    file->Var32((u32*)&CleanMixGainR);
 }
 
 void SPUChannel::FIFO_BufferData()
@@ -432,10 +340,8 @@ void SPUChannel::Start()
         Pos = -3;
 
     NoiseVal = 0x7FFF;
-    PrevSample[0] = 0;
-    PrevSample[1] = 0;
-    PrevSample[2] = 0;
     CurSample = 0;
+    CurVal = 0;
 
     FIFOReadPos = 0;
     FIFOWritePos = 0;
@@ -591,98 +497,10 @@ void SPUChannel::NextSample_Noise()
     }
 }
 
-template<u32 type>
-s32 SPUChannel::Run()
+void SPUChannel::MixIntoSampleWithPan(s32 in, SPUSample<s32>& sample)
 {
-    if (!(Cnt & (1<<31))) return 0;
-
-    if ((type < 3) && ((Length+LoopPos) < 16)) return 0;
-
-    if (KeyOn)
-    {
-        Start();
-        KeyOn = false;
-    }
-
-    Timer += 512; // 1 sample = 512 cycles at 16MHz
-
-    while (Timer >> 16)
-    {
-        Timer = TimerReload + (Timer - 0x10000);
-
-        // for optional interpolation: save previous samples
-        // the interpolated audio will be delayed by a couple samples,
-        // but it's easier to deal with this way
-        if ((type < 3) && (InterpType != AudioInterpolation::None))
-        {
-            PrevSample[2] = PrevSample[1];
-            PrevSample[1] = PrevSample[0];
-            PrevSample[0] = CurSample;
-        }
-
-        switch (type)
-        {
-        case 0: NextSample_PCM8(); break;
-        case 1: NextSample_PCM16(); break;
-        case 2: NextSample_ADPCM(); break;
-        case 3: NextSample_PSG(); break;
-        case 4: NextSample_Noise(); break;
-        }
-    }
-
-    s32 val = (s32)CurSample;
-
-    // interpolation (emulation improvement, not a hardware feature)
-    if ((type < 3) && (InterpType != AudioInterpolation::None))
-    {
-        s32 samplepos = ((Timer - TimerReload) * 0x100) / (0x10000 - TimerReload);
-        if (samplepos > 0xFF) samplepos = 0xFF;
-
-        switch (InterpType)
-        {
-        case AudioInterpolation::Linear:
-            val = ((val           * samplepos) +
-                   (PrevSample[0] * (0xFF-samplepos))) >> 8;
-            break;
-
-        case AudioInterpolation::Cosine:
-            val = ((val           * InterpCos[samplepos]) +
-                   (PrevSample[0] * InterpCos[0xFF-samplepos])) >> 14;
-            break;
-
-        case AudioInterpolation::Cubic:
-            val = ((PrevSample[2] * InterpCubic[samplepos][0]) +
-                   (PrevSample[1] * InterpCubic[samplepos][1]) +
-                   (PrevSample[0] * InterpCubic[samplepos][2]) +
-                   (val           * InterpCubic[samplepos][3])) >> 14;
-            break;
-
-        case AudioInterpolation::SNESGaussian: {
-                // Avoid clipping (from fullsnes)
-#define CLAMP(s) (std::clamp((s) >> 1, -0x3FFA, 0x3FF8))
-                s32 out =    (InterpSNESGauss[0x0FF - samplepos] * CLAMP(PrevSample[2]) >> 10);
-                out = out + ((InterpSNESGauss[0x1FF - samplepos] * CLAMP(PrevSample[1])) >> 10);
-                out = out + ((InterpSNESGauss[0x100 + samplepos] * CLAMP(PrevSample[0])) >> 10);
-                out = out + ((InterpSNESGauss[0x000 + samplepos] * CLAMP(val)) >> 10);
-                val = std::clamp(out, -0x8000, 0x7FFF);
-#undef CLAMP
-                break;
-            }
-
-        default:
-            break;
-        }
-    }
-
-    val <<= VolumeShift;
-    val *= Volume;
-    return val;
-}
-
-void SPUChannel::PanOutput(s32 in, s32& left, s32& right)
-{
-    left += ((s64)in * (128-Pan)) >> 10;
-    right += ((s64)in * Pan) >> 10;
+    sample.l += ((s64)in * (128-Pan)) >> 10;
+    sample.r += ((s64)in * Pan) >> 10;
 }
 
 
@@ -808,32 +626,213 @@ void SPUCaptureUnit::Run(s32 sample)
     }
 }
 
+SPUSample<s32> SPU::Mix() {
+    SPUSample<s32> sample{};
+    SPUSample<s32> output{};
 
-void SPU::Mix(u32 dummy)
+    s32 ch0 = Channels[0].CurVal;
+    s32 ch1 = Channels[1].CurVal;
+    s32 ch2 = Channels[2].CurVal;
+    s32 ch3 = Channels[3].CurVal;
+
+    // TODO: addition from capture registers
+    Channels[0].MixIntoSampleWithPan(ch0, sample);
+    Channels[2].MixIntoSampleWithPan(ch2, sample);
+
+    if (!(Cnt & (1<<12))) Channels[1].MixIntoSampleWithPan(ch1, sample);
+    if (!(Cnt & (1<<13))) Channels[3].MixIntoSampleWithPan(ch3, sample);
+
+    for (int i = 4; i < 16; i++)
+    {
+        SPUChannel* chan = &Channels[i];
+        chan->MixIntoSampleWithPan(chan->CurVal, sample);
+    }
+
+    // final output
+
+    switch (Cnt & 0x0300)
+    {
+    case 0x0000: // left mixer
+        output.l = sample.l;
+        break;
+    case 0x0100: // channel 1
+        {
+            s32 pan = 128 - Channels[1].Pan;
+            output.l = ((s64)ch1 * pan) >> 10;
+        }
+        break;
+    case 0x0200: // channel 3
+        {
+            s32 pan = 128 - Channels[3].Pan;
+            output.l = ((s64)ch3 * pan) >> 10;
+        }
+        break;
+    case 0x0300: // channel 1+3
+        {
+            s32 pan1 = 128 - Channels[1].Pan;
+            s32 pan3 = 128 - Channels[3].Pan;
+            output.l = (((s64)ch1 * pan1) >> 10) + (((s64)ch3 * pan3) >> 10);
+        }
+        break;
+    }
+
+    switch (Cnt & 0x0C00)
+    {
+    case 0x0000: // right mixer
+        output.r = sample.r;
+        break;
+    case 0x0400: // channel 1
+        {
+            s32 pan = Channels[1].Pan;
+            output.r = ((s64)ch1 * pan) >> 10;
+        }
+        break;
+    case 0x0800: // channel 3
+        {
+            s32 pan = Channels[3].Pan;
+            output.r = ((s64)ch3 * pan) >> 10;
+        }
+        break;
+    case 0x0C00: // channel 1+3
+        {
+            s32 pan1 = Channels[1].Pan;
+            s32 pan3 = Channels[3].Pan;
+            output.r = (((s64)ch1 * pan1) >> 10) + (((s64)ch3 * pan3) >> 10);
+        }
+        break;
+    }
+
+    output.l = ((s64)output.l * MasterVolume) >> 7;
+    output.r = ((s64)output.r * MasterVolume) >> 7;
+
+    output.l >>= 8;
+    output.r >>= 8;
+
+    // Add SOUNDBIAS value
+    // The value used by all commercial games is 0x200, so we subtract that so it won't offset the final sound output.
+    if (ApplyBias)
+    {
+        output.l += (Bias << 6) - 0x8000;
+        output.r += (Bias << 6) - 0x8000;
+    }
+
+    output.l = std::clamp(output.l, -0x8000, 0x7FFF);
+    output.r = std::clamp(output.r, -0x8000, 0x7FFF);
+
+    // The original DS and DS lite degrade the output from 16 to 10 bit before output
+    if (Degrade10Bit)
+    {
+        output.l &= 0xFFFFFFC0;
+        output.r &= 0xFFFFFFC0;
+    }
+
+    return output;
+}
+
+s32 SPU::RunChannel(SPUChannel &c)
 {
-    s32 left = 0, right = 0;
-    s32 leftoutput = 0, rightoutput = 0;
+    u8 type;
+    switch ((c.Cnt >> 29) & 0x3)
+    {
+    case 0: type = 0; break;
+    case 1: type = 1; break;
+    case 2: type = 2; break;
+    case 3:
+        if (c.Num >= 14)
+        {
+            type = 4;
+            break;
+        }
+        else if (c.Num >= 8)
+        {
+            type = 3;
+            break;
+        }
+        [[fallthrough]];
+    default:
+        type = 0;
+    }
+
+    if (
+        (!(c.Cnt & (1<<31))) || 
+        ((type < 3) && ((c.Length+c.LoopPos) < 16))
+    ) {
+        if (InterpolationType == AudioInterpolationOption::Clean) {
+            Resampler.AddSample(c.Num, InterpCycles * spuCycleT, 0, 0);
+        }
+        return 0;
+    }
+
+    if (c.KeyOn)
+    {
+        c.Start();
+        c.KeyOn = false;
+
+        if (InterpolationType == AudioInterpolationOption::Clean) {
+            Resampler.AddSample(c.Num, InterpCycles * spuCycleT, 0, 0);
+        }
+    }
+
+    // At what cycle is this timer gonna HIT???
+    u64 cycle = InterpCycles + (0x10000 - c.Timer);
+    c.Timer += 512; // 1 sample = 512 cycles at 16MHz
+    while (c.Timer >> 16)
+    {
+        switch (type)
+        {
+            case 0: c.NextSample_PCM8(); break;
+            case 1: c.NextSample_PCM16(); break;
+            case 2: c.NextSample_ADPCM(); break;
+            case 3: c.NextSample_PSG(); break;
+            case 4: c.NextSample_Noise(); break;
+        }
+        
+        c.CurVal = ((s32)c.CurSample << c.VolumeShift) * c.Volume;
+        
+        if (InterpolationType == AudioInterpolationOption::Clean) {
+            // All bitshifts converted to divisions for maximum hifi
+            SPUSample<float> sample{
+                .l = ((s64)c.CurSample * (128-c.Pan)) * c.CleanMixGainL,
+                .r = ((s64)c.CurSample * c.Pan) * c.CleanMixGainR,    
+            };
+            
+            const float t = cycle * spuCycleT;
+            
+            Resampler.AddSample(c.Num, t, sample.l, sample.r);
+        }
+        
+        c.Timer = c.TimerReload + (c.Timer - 0x10000);
+        cycle += 0x10000 - c.TimerReload;
+    }
+
+    
+    return c.CurVal;
+}
+
+void SPU::Run(u32 dummy)
+{
+    SPUSample<s32> sample{};
 
     if ((Cnt & (1<<15)) && (!dummy))
     {
-        s32 ch0 = Channels[0].DoRun();
-        s32 ch1 = Channels[1].DoRun();
-        s32 ch2 = Channels[2].DoRun();
-        s32 ch3 = Channels[3].DoRun();
+        s32 ch0 = RunChannel(Channels[0]);
+        s32 ch1 = RunChannel(Channels[1]);
+        s32 ch2 = RunChannel(Channels[2]);
+        s32 ch3 = RunChannel(Channels[3]);
 
         // TODO: addition from capture registers
-        Channels[0].PanOutput(ch0, left, right);
-        Channels[2].PanOutput(ch2, left, right);
+        Channels[0].MixIntoSampleWithPan(ch0, sample);
+        Channels[2].MixIntoSampleWithPan(ch2, sample);
 
-        if (!(Cnt & (1<<12))) Channels[1].PanOutput(ch1, left, right);
-        if (!(Cnt & (1<<13))) Channels[3].PanOutput(ch3, left, right);
+        if (!(Cnt & (1<<12))) Channels[1].MixIntoSampleWithPan(ch1, sample);
+        if (!(Cnt & (1<<13))) Channels[3].MixIntoSampleWithPan(ch3, sample);
 
         for (int i = 4; i < 16; i++)
         {
             SPUChannel* chan = &Channels[i];
 
-            s32 channel = chan->DoRun();
-            chan->PanOutput(channel, left, right);
+            s32 channel = RunChannel(*chan);
+            chan->MixIntoSampleWithPan(channel, sample);
         }
 
         // sound capture
@@ -841,7 +840,7 @@ void SPU::Mix(u32 dummy)
 
         if (Capture[0].Cnt & (1<<7))
         {
-            s32 val = left;
+            s32 val = sample.l;
 
             val >>= 8;
             if      (val < -0x8000) val = -0x8000;
@@ -852,7 +851,7 @@ void SPU::Mix(u32 dummy)
 
         if (Capture[1].Cnt & (1<<7))
         {
-            s32 val = right;
+            s32 val = sample.r;
 
             val >>= 8;
             if      (val < -0x8000) val = -0x8000;
@@ -860,226 +859,211 @@ void SPU::Mix(u32 dummy)
 
             Capture[1].Run(val);
         }
+    }
 
-        // final output
+    InterpCycles += 512;
+    const float t = InterpCycles * spuCycleT;
+    if (InterpolationType == AudioInterpolationOption::Faithful) {
+        SPUSample<s32> output{};
 
-        switch (Cnt & 0x0300)
-        {
-        case 0x0000: // left mixer
-            leftoutput = left;
-            break;
-        case 0x0100: // channel 1
-            {
-                s32 pan = 128 - Channels[1].Pan;
-                leftoutput = ((s64)ch1 * pan) >> 10;
-            }
-            break;
-        case 0x0200: // channel 3
-            {
-                s32 pan = 128 - Channels[3].Pan;
-                leftoutput = ((s64)ch3 * pan) >> 10;
-            }
-            break;
-        case 0x0300: // channel 1+3
-            {
-                s32 pan1 = 128 - Channels[1].Pan;
-                s32 pan3 = 128 - Channels[3].Pan;
-                leftoutput = (((s64)ch1 * pan1) >> 10) + (((s64)ch3 * pan3) >> 10);
-            }
-            break;
+        if ((Cnt & (1<<15))) {
+            output = Mix();
         }
 
-        switch (Cnt & 0x0C00)
-        {
-        case 0x0000: // right mixer
-            rightoutput = right;
-            break;
-        case 0x0400: // channel 1
-            {
-                s32 pan = Channels[1].Pan;
-                rightoutput = ((s64)ch1 * pan) >> 10;
-            }
-            break;
-        case 0x0800: // channel 3
-            {
-                s32 pan = Channels[3].Pan;
-                rightoutput = ((s64)ch3 * pan) >> 10;
-            }
-            break;
-        case 0x0C00: // channel 1+3
-            {
-                s32 pan1 = Channels[1].Pan;
-                s32 pan3 = Channels[3].Pan;
-                rightoutput = (((s64)ch1 * pan1) >> 10) + (((s64)ch3 * pan3) >> 10);
-            }
-            break;
+        Resampler.AddSample(0, t, (float)output.l, (float)output.r);
+    }
+
+    if (Resampler.CanGenerateOutputBuffer()) {
+        const int WalkBackInterval = 33513982 / 2;
+        if (InterpCycles >= WalkBackInterval) {
+            InterpCycles -= WalkBackInterval;
+            Resampler.WalkBackTime(WalkBackInterval * spuCycleT);
         }
-    }
+        
+        auto& outBuf = Resampler.GenerateOutputBuffer();
 
-    leftoutput = ((s64)leftoutput * MasterVolume) >> 7;
-    rightoutput = ((s64)rightoutput * MasterVolume) >> 7;
+        // compensate for sinc interpolation overshoot
+        const float OVERSHOOT_COMPENSATION = 0.9;
 
-    leftoutput >>= 8;
-    rightoutput >>= 8;
+        int numToWrite = OutputBufferLen - OutputBufferNumAvailable(); 
+        if (numToWrite > outBuf.size()) {
+            numToWrite = outBuf.size();
+        }
 
-    // Add SOUNDBIAS value
-    // The value used by all commercial games is 0x200, so we subtract that so it won't offset the final sound output.
-    if (ApplyBias)
-    {
-        leftoutput += (Bias << 6) - 0x8000;
-        rightoutput += (Bias << 6) - 0x8000;
-    }
-
-    if      (leftoutput < -0x8000) leftoutput = -0x8000;
-    else if (leftoutput > 0x7FFF)  leftoutput = 0x7FFF;
-    if      (rightoutput < -0x8000) rightoutput = -0x8000;
-    else if (rightoutput > 0x7FFF)  rightoutput = 0x7FFF;
-
-    // The original DS and DS lite degrade the output from 16 to 10 bit before output
-    if (Degrade10Bit)
-    {
-        leftoutput &= 0xFFFFFFC0;
-        rightoutput &= 0xFFFFFFC0;
-    }
-
-    // OutputBufferFrame can never get full because it's
-    // transfered to OutputBuffer at the end of the frame
-    // FIXME: apparently this does happen!!!
-    if (OutputBackbufferWritePosition * 2 < OutputBufferSize - 1)
-    {
-        OutputBackbuffer[OutputBackbufferWritePosition    ] = leftoutput >> 1;
-        OutputBackbuffer[OutputBackbufferWritePosition + 1] = rightoutput >> 1;
-        OutputBackbufferWritePosition += 2;
+        int pos = OutputBufferWritePosition;
+        for (int i = 0; i < numToWrite; i++) {
+            auto l = (s32)(outBuf[i].v[0] * 0.5 * OVERSHOOT_COMPENSATION);
+            auto r = (s32)(outBuf[i].v[1] * 0.5 * OVERSHOOT_COMPENSATION);
+            // TODO: there is probably still clipping happening here!!
+            l = std::clamp(l, -32768, 32767);
+            r = std::clamp(r, -32768, 32767);
+            OutputBuffer[pos] = {
+                (s16)(l), 
+                (s16)(r)
+            };
+            
+            pos = (pos + 1) % OutputBufferLen;
+        }
+        OutputBufferWritePosition = pos;
     }
 
     NDS.ScheduleEvent(Event_SPU, true, 1024, 0, 0);
 }
 
-void SPU::TransferOutput()
+void SPU::DrainOutputBuffer()
 {
-    Platform::Mutex_Lock(AudioLock);
-    for (u32 i = 0; i < OutputBackbufferWritePosition; i += 2)
-    {
-        OutputFrontBuffer[OutputFrontBufferWritePosition    ] = OutputBackbuffer[i   ];
-        OutputFrontBuffer[OutputFrontBufferWritePosition + 1] = OutputBackbuffer[i + 1];
-
-        OutputFrontBufferWritePosition += 2;
-        OutputFrontBufferWritePosition &= OutputBufferSize*2-1;
-        if (OutputFrontBufferWritePosition == OutputFrontBufferReadPosition)
-        {
-            // advance the read position too, to avoid losing the entire FIFO
-            OutputFrontBufferReadPosition += 2;
-            OutputFrontBufferReadPosition &= OutputBufferSize*2-1;
-        }
-    }
-    OutputBackbufferWritePosition = 0;
-    Platform::Mutex_Unlock(AudioLock);;
+    OutputBufferWritePosition = 0;
+    OutputBufferReadPosition = 0;
 }
 
-void SPU::TrimOutput()
+void SPU::InitOutputBuffer()
 {
-    Platform::Mutex_Lock(AudioLock);
-    const int halflimit = (OutputBufferSize / 2);
-
-    int readpos = OutputFrontBufferWritePosition - (halflimit*2);
-    if (readpos < 0) readpos += (OutputBufferSize*2);
-
-    OutputFrontBufferReadPosition = readpos;
-    Platform::Mutex_Unlock(AudioLock);
+    memset(OutputBuffer, 0, sizeof(OutputBuffer));
+    OutputBufferReadPosition = 0;
+    OutputBufferWritePosition = 0;
 }
 
-void SPU::DrainOutput()
+int SPU::OutputBufferNumAvailable() const
 {
-    Platform::Mutex_Lock(AudioLock);
-    OutputFrontBufferWritePosition = 0;
-    OutputFrontBufferReadPosition = 0;
-    Platform::Mutex_Unlock(AudioLock);
-}
-
-void SPU::InitOutput()
-{
-    Platform::Mutex_Lock(AudioLock);
-    memset(OutputBackbuffer, 0, 2*OutputBufferSize*2);
-    memset(OutputFrontBuffer, 0, 2*OutputBufferSize*2);
-    OutputFrontBufferReadPosition = 0;
-    OutputFrontBufferWritePosition = 0;
-    Platform::Mutex_Unlock(AudioLock);
-}
-
-int SPU::GetOutputSize() const
-{
-    Platform::Mutex_Lock(AudioLock);
-
     int ret;
-    if (OutputFrontBufferWritePosition >= OutputFrontBufferReadPosition)
-        ret = OutputFrontBufferWritePosition - OutputFrontBufferReadPosition;
-    else
-        ret = (OutputBufferSize*2) - OutputFrontBufferReadPosition + OutputFrontBufferWritePosition;
+    if (OutputBufferWritePosition >= OutputBufferReadPosition) 
+    {
+        ret = OutputBufferWritePosition - OutputBufferReadPosition;
+    } 
+    else 
+    {
+        ret = OutputBufferLen - OutputBufferReadPosition + OutputBufferWritePosition;
+    }
 
-    ret >>= 1;
-
-    Platform::Mutex_Unlock(AudioLock);
     return ret;
 }
 
-void SPU::Sync(bool wait)
+/**
+ * @returns num samples read
+ */
+int SPU::DequeueOutputBuffer(s16* data, int samples)
 {
-    // this function is currently not used anywhere
-    // depending on the usage context the thread safety measures could be made
-    // a lot faster
-
-    // sync to audio output in case the core is running too fast
-    // * wait=true: wait until enough audio data has been played
-    // * wait=false: merely skip some audio data to avoid a FIFO overflow
-
-    const int halflimit = (OutputBufferSize / 2);
-
-    if (wait)
-    {
-        // TODO: less CPU-intensive wait?
-        while (GetOutputSize() > halflimit);
+    int numToRead = OutputBufferNumAvailable();
+    if (numToRead > samples) {
+        numToRead = samples;
     }
-    else if (GetOutputSize() > halflimit)
+
+    int pos = OutputBufferReadPosition;
+    for (int i = 0; i < numToRead; i++)
     {
-        Platform::Mutex_Lock(AudioLock);
+        auto s = OutputBuffer[pos];
+        *data++ = s.l;
+        *data++ = s.r;
 
-        int readpos = OutputFrontBufferWritePosition - (halflimit*2);
-        if (readpos < 0) readpos += (OutputBufferSize*2);
+        pos = (pos + 1) % OutputBufferLen;
+    }
+    OutputBufferReadPosition = pos;
 
-        OutputFrontBufferReadPosition = readpos;
+    return numToRead;
+}
 
-        Platform::Mutex_Unlock(AudioLock);
+void SPU::SetCnt(u16 cnt) {
+    Cnt = cnt;
+
+    for (int i = 0; i < 16; i++) {
+        ChannelUpdateCleanMixGain(Channels[i]);
     }
 }
 
-int SPU::ReadOutput(s16* data, int samples)
-{
-    Platform::Mutex_Lock(AudioLock);
-    if (OutputFrontBufferReadPosition == OutputFrontBufferWritePosition)
+void SPU::ChannelSetCnt(SPUChannel &c, u32 val) {
+    u32 oldcnt = c.Cnt;
+    c.Cnt = val & 0xFF7F837F;
+
+    c.Volume = c.Cnt & 0x7F;
+    if (c.Volume == 127) c.Volume++;
+
+    const u8 volshift[4] = {4, 3, 2, 0};
+    c.VolumeShift = volshift[(c.Cnt >> 8) & 0x3];
+
+    c.Pan = (c.Cnt >> 16) & 0x7F;
+    if (c.Pan == 127) c.Pan++;
+
+    if ((val & (1<<31)) && !(oldcnt & (1<<31)))
     {
-        Platform::Mutex_Unlock(AudioLock);
-        return 0;
+        c.KeyOn = true;
     }
 
-    for (int i = 0; i < samples; i++)
-    {
-        *data++ = OutputFrontBuffer[OutputFrontBufferReadPosition];
-        *data++ = OutputFrontBuffer[OutputFrontBufferReadPosition + 1];
-
-        OutputFrontBufferReadPosition += 2;
-        OutputFrontBufferReadPosition &= ((2*OutputBufferSize)-1);
-
-        if (OutputFrontBufferWritePosition == OutputFrontBufferReadPosition)
-        {
-            Platform::Mutex_Unlock(AudioLock);
-            return i+1;
-        }
-    }
-
-    Platform::Mutex_Unlock(AudioLock);
-    return samples;
+    ChannelUpdateCleanMixGain(c);
 }
 
+void SPU::ChannelUpdateCleanMixGain(SPUChannel &c) {
+    float masterGain = MasterVolume * (1.0 / 128.0 / 256.0 / 1024.0);
+    float channelGain = (u32)(1 << c.VolumeShift) * c.Volume;
+    float gain = masterGain * channelGain;
+
+    switch (Cnt & 0x0300)
+    {
+        case 0x0000: // left mixer
+            c.CleanMixGainL = gain;
+            if ((Cnt & (1<<12)) && c.Num == 12) {
+                c.CleanMixGainL = 0;
+            }
+            if ((Cnt & (1<<13)) && c.Num == 13) {
+                c.CleanMixGainL = 0;
+            }
+            break;
+        case 0x0100: // channel 1
+            if (c.Num == 1) {
+                c.CleanMixGainL = gain;
+            } else {
+                c.CleanMixGainL = 0.0;
+            }
+            break;
+        case 0x0200: // channel 3
+            if (c.Num == 3) {
+                c.CleanMixGainL = gain;
+            } else {
+                c.CleanMixGainL = 0.0;
+            }
+            break;
+        case 0x0300: // channel 1+3
+            if (c.Num == 1 || c.Num == 3) {
+                c.CleanMixGainL = gain;
+            } else {
+                c.CleanMixGainL = 0.0;
+            }
+            break;
+    }
+
+    switch (Cnt & 0x0C00)
+    {
+        case 0x0000: // right mixer
+            c.CleanMixGainR = gain;
+            if ((Cnt & (1<<12)) && c.Num == 12) {
+                c.CleanMixGainR = 0;
+            }
+            if ((Cnt & (1<<13)) && c.Num == 13) {
+                c.CleanMixGainR = 0;
+            }
+            break;
+        case 0x0400: // channel 1
+            if (c.Num == 1) {
+                c.CleanMixGainR = gain;
+            } else {
+                c.CleanMixGainR = 0.0;
+            }
+            break;
+        case 0x0800: // channel 3
+            if (c.Num == 3) {
+                c.CleanMixGainR = gain;
+            } else {
+                c.CleanMixGainR = 0.0;
+            }
+            break;
+        case 0x0C00: // channel 1+3
+            if (c.Num == 1 || c.Num == 3) {
+                c.CleanMixGainR = gain;
+            } else {
+                c.CleanMixGainR = 0.0;
+            }
+            break;
+    }
+}
 
 u8 SPU::Read8(u32 addr)
 {
@@ -1175,10 +1159,10 @@ void SPU::Write8(u32 addr, u8 val)
 
         switch (addr & 0xF)
         {
-        case 0x0: chan->SetCnt((chan->Cnt & 0xFFFFFF00) | val); return;
-        case 0x1: chan->SetCnt((chan->Cnt & 0xFFFF00FF) | (val << 8)); return;
-        case 0x2: chan->SetCnt((chan->Cnt & 0xFF00FFFF) | (val << 16)); return;
-        case 0x3: chan->SetCnt((chan->Cnt & 0x00FFFFFF) | (val << 24)); return;
+        case 0x0: ChannelSetCnt(*chan, (chan->Cnt & 0xFFFFFF00) | val); return;
+        case 0x1: ChannelSetCnt(*chan, (chan->Cnt & 0xFFFF00FF) | (val << 8)); return;
+        case 0x2: ChannelSetCnt(*chan, (chan->Cnt & 0xFF00FFFF) | (val << 16)); return;
+        case 0x3: ChannelSetCnt(*chan, (chan->Cnt & 0x00FFFFFF) | (val << 24)); return;
         }
     }
     else
@@ -1186,9 +1170,10 @@ void SPU::Write8(u32 addr, u8 val)
         switch (addr)
         {
         case 0x04000500:
-            Cnt = (Cnt & 0xBF00) | (val & 0x7F);
+            SetCnt((Cnt & 0xBF00) | (val & 0x7F));
             MasterVolume = Cnt & 0x7F;
             if (MasterVolume == 127) MasterVolume++;
+            
             return;
         case 0x04000501:
             Cnt = (Cnt & 0x007F) | ((val & 0xBF) << 8);
@@ -1216,8 +1201,8 @@ void SPU::Write16(u32 addr, u16 val)
 
         switch (addr & 0xF)
         {
-        case 0x0: chan->SetCnt((chan->Cnt & 0xFFFF0000) | val); return;
-        case 0x2: chan->SetCnt((chan->Cnt & 0x0000FFFF) | (val << 16)); return;
+        case 0x0: ChannelSetCnt(*chan, (chan->Cnt & 0xFFFF0000) | val); return;
+        case 0x2: ChannelSetCnt(*chan, (chan->Cnt & 0x0000FFFF) | (val << 16)); return;
         case 0x8:
             chan->SetTimerReload(val);
             if      ((addr & 0xF0) == 0x10) Capture[0].SetTimerReload(val);
@@ -1234,7 +1219,7 @@ void SPU::Write16(u32 addr, u16 val)
         switch (addr)
         {
         case 0x04000500:
-            Cnt = val & 0xBF7F;
+            SetCnt(val & 0xBF7F);
             MasterVolume = Cnt & 0x7F;
             if (MasterVolume == 127) MasterVolume++;
             return;
@@ -1265,7 +1250,7 @@ void SPU::Write32(u32 addr, u32 val)
 
         switch (addr & 0xF)
         {
-        case 0x0: chan->SetCnt(val); return;
+        case 0x0: ChannelSetCnt(*chan, val); return;
         case 0x4: chan->SetSrcAddr(val); return;
         case 0x8:
             chan->SetLoopPos(val >> 16);
@@ -1282,7 +1267,7 @@ void SPU::Write32(u32 addr, u32 val)
         switch (addr)
         {
         case 0x04000500:
-            Cnt = val & 0xBF7F;
+            SetCnt(val & 0xBF7F);
             MasterVolume = Cnt & 0x7F;
             if (MasterVolume == 127) MasterVolume++;
             return;
@@ -1292,7 +1277,7 @@ void SPU::Write32(u32 addr, u32 val)
             return;
 
         case 0x04000508:
-            Capture[0].SetCnt(val & 0xFF);
+            Capture[0].SetCnt(val & 0xFF); 
             Capture[1].SetCnt(val >> 8);
             if (val & 0x0303) Log(LogLevel::Warn, "!! UNSUPPORTED SPU CAPTURE MODE %04X\n", val);
             return;

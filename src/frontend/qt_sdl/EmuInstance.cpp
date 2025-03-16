@@ -71,6 +71,7 @@ EmuInstance::EmuInstance(int inst) : deleting(false),
 {
     consoleType = globalCfg.GetInt("Emu.ConsoleType");
 
+    nds = nullptr;
     ndsSave = nullptr;
     cartType = -1;
     baseROMDir = "";
@@ -91,14 +92,16 @@ EmuInstance::EmuInstance(int inst) : deleting(false),
     cheatsOn = localCfg.GetBool("EnableCheats");
 
     doLimitFPS = globalCfg.GetBool("LimitFPS");
-
+    
     double val = globalCfg.GetDouble("TargetFPS");
     if (val == 0.0)
     {
         Platform::Log(Platform::LogLevel::Error, "Target FPS in config invalid\n");
-        targetFPS = 60.0;
+        setTargetFPS(60.0);
     }
-    else targetFPS = val;
+    else {
+        setTargetFPS(val);
+    }
 
     val = globalCfg.GetDouble("FastForwardFPS");
     if (val == 0.0)
@@ -120,7 +123,6 @@ EmuInstance::EmuInstance(int inst) : deleting(false),
 
     mpAudioMode = globalCfg.GetInt("MP.AudioMode");
 
-    nds = nullptr;
     //updateConsole();
 
     audioInit();
@@ -1296,13 +1298,14 @@ bool EmuInstance::updateConsole() noexcept
 #endif
 
     NDSArgs ndsargs {
-            std::move(arm9bios),
-            std::move(arm7bios),
-            std::move(*firmware),
-            jitargs,
-            static_cast<AudioBitDepth>(globalCfg.GetInt("Audio.BitDepth")),
-            static_cast<AudioInterpolation>(globalCfg.GetInt("Audio.Interpolation")),
-            gdbargs,
+            .ARM9BIOS = std::move(arm9bios),
+            .ARM7BIOS = std::move(arm7bios),
+            .Firmware = std::move(*firmware),
+            .JIT = jitargs,
+            .AudioBitDepth = static_cast<AudioBitDepthOption>(globalCfg.GetInt("Audio.BitDepth")),
+            .AudioInterpolation = static_cast<AudioInterpolationOption>(globalCfg.GetInt("Audio.Interpolation")),
+            .AudioTimeScale = (float)(ndsTrueFramerate / globalCfg.GetDouble("TargetFPS")),
+            .GDB = gdbargs,
     };
     NDSArgs* args = &ndsargs;
 
@@ -1360,8 +1363,9 @@ bool EmuInstance::updateConsole() noexcept
         nds->SetFirmware(std::move(args->Firmware));
         nds->SetJITArgs(args->JIT);
         nds->SetGdbArgs(args->GDB);
-        nds->SPU.SetInterpolation(args->Interpolation);
-        nds->SPU.SetDegrade10Bit(args->BitDepth);
+        nds->SPU.SetInterpolation(args->AudioInterpolation);
+        nds->SPU.SetTimeScale(args->AudioTimeScale);
+        nds->SPU.SetDegrade10Bit(args->AudioBitDepth);
 
         if (consoleType == 1)
         {
@@ -2245,5 +2249,12 @@ void EmuInstance::animatedROMIcon(const u8 (&data)[8][512], const u16 (&palette)
 
         for (int j = 0; j < SEQ_DUR(sequence[i]); j++)
             animatedSequenceRef.push_back(i);
+    }
+}
+
+void EmuInstance::setTargetFPS(float _targetFPS) {
+    targetFPS = _targetFPS;
+    if (nds) {
+        nds->SPU.SetTimeScale(ndsTrueFramerate / targetFPS);
     }
 }

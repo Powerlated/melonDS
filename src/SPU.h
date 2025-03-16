@@ -21,32 +21,36 @@
 
 #include "Savestate.h"
 #include "Platform.h"
+#include "MelonResampler.h"
+#include <atomic>
 
 namespace melonDS
 {
 class NDS;
 class SPU;
 
-enum class AudioBitDepth
+enum class AudioBitDepthOption
 {
     Auto,
     _10Bit,
     _16Bit,
 };
 
-enum class AudioInterpolation
+enum class AudioInterpolationOption
 {
-    None,
-    Linear,
-    Cosine,
-    Cubic,
-    SNESGaussian
+    Clean,    // Band-limited zero-order hold - DS-style crunchiness without the nasty aliasing.
+    Faithful, // Aliased zero-order hold - True to the hardware. Crunchiness + nasty aliasing.
+};
+
+template <typename T>
+struct SPUSample {
+    T l, r;
 };
 
 class SPUChannel
 {
 public:
-    SPUChannel(u32 num, melonDS::NDS& nds, AudioInterpolation interpolation);
+    SPUChannel(u32 num, melonDS::NDS& nds);
     void Reset();
     void DoSavestate(Savestate* file);
 
@@ -54,27 +58,23 @@ public:
     static const u16 ADPCMTable[89];
     static const s16 PSGTable[8][8];
 
-    // audio interpolation is an improvement upon the original hardware
-    // (which performs no interpolation)
-    AudioInterpolation InterpType = AudioInterpolation::None;
-
     const u32 Num;
-
+    
     u32 Cnt = 0;
     u32 SrcAddr = 0;
     u16 TimerReload = 0;
     u32 LoopPos = 0;
     u32 Length = 0;
-
+    
     u8 Volume = 0;
     u8 VolumeShift = 0;
     u8 Pan = 0;
-
+    
     bool KeyOn = false;
     u32 Timer = 0;
     s32 Pos = 0;
-    s16 PrevSample[3] {};
-    s16 CurSample = 0;
+    s32 CurSample = 0;
+    s32 CurVal = 0;
     u16 NoiseVal = 0;
 
     s32 ADPCMVal = 0;
@@ -82,35 +82,18 @@ public:
     s32 ADPCMValLoop = 0;
     s32 ADPCMIndexLoop = 0;
     u8 ADPCMCurByte = 0;
-
+    
     u32 FIFO[8] {};
     u32 FIFOReadPos = 0;
     u32 FIFOWritePos = 0;
     u32 FIFOReadOffset = 0;
     u32 FIFOLevel = 0;
 
+    float CleanMixGainL = 0;
+    float CleanMixGainR = 0;
+
     void FIFO_BufferData();
     template<typename T> T FIFO_ReadData();
-
-    void SetCnt(u32 val)
-    {
-        u32 oldcnt = Cnt;
-        Cnt = val & 0xFF7F837F;
-
-        Volume = Cnt & 0x7F;
-        if (Volume == 127) Volume++;
-
-        const u8 volshift[4] = {4, 3, 2, 0};
-        VolumeShift = volshift[(Cnt >> 8) & 0x3];
-
-        Pan = (Cnt >> 16) & 0x7F;
-        if (Pan == 127) Pan++;
-
-        if ((val & (1<<31)) && !(oldcnt & (1<<31)))
-        {
-            KeyOn = true;
-        }
-    }
 
     void SetSrcAddr(u32 val) { SrcAddr = val & 0x07FFFFFC; }
     void SetTimerReload(u32 val) { TimerReload = val & 0xFFFF; }
@@ -125,33 +108,7 @@ public:
     void NextSample_PSG();
     void NextSample_Noise();
 
-    template<u32 type> s32 Run();
-
-    s32 DoRun()
-    {
-        switch ((Cnt >> 29) & 0x3)
-        {
-        case 0: return Run<0>(); break;
-        case 1: return Run<1>(); break;
-        case 2: return Run<2>(); break;
-        case 3:
-            if (Num >= 14)
-            {
-                return Run<4>();
-                break;
-            }
-            else if (Num >= 8)
-            {
-                return Run<3>();
-                break;
-            }
-            [[fallthrough]];
-        default:
-            return 0;
-        }
-    }
-
-    void PanOutput(s32 in, s32& left, s32& right);
+    void MixIntoSampleWithPan(s32 in, SPUSample<s32> &out);
 
 private:
     melonDS::NDS& NDS;
@@ -216,7 +173,7 @@ private:
 class SPU
 {
 public:
-    explicit SPU(melonDS::NDS& nds, AudioBitDepth bitdepth, AudioInterpolation interpolation);
+    explicit SPU(melonDS::NDS& nds, AudioBitDepthOption bitdepth, AudioInterpolationOption interpolation, float timeScale);
     ~SPU();
     void Reset();
     void DoSavestate(Savestate* file);
@@ -225,24 +182,26 @@ public:
 
     void SetPowerCnt(u32 val);
 
-    // 0=none 1=linear 2=cosine 3=cubic
-    void SetInterpolation(AudioInterpolation type);
+    void SetInterpolation(AudioInterpolationOption type);
+    void SetTimeScale(float timeScale);
 
     void SetBias(u16 bias);
     void SetDegrade10Bit(bool enable);
-    void SetDegrade10Bit(AudioBitDepth depth);
+    void SetDegrade10Bit(AudioBitDepthOption depth);
     void SetApplyBias(bool enable);
 
-    void Mix(u32 dummy);
+    SPUSample<s32> Mix();
+    void Run(u32 dummy);
 
-    void TrimOutput();
-    void DrainOutput();
-    void InitOutput();
-    int GetOutputSize() const;
-    void Sync(bool wait);
-    int ReadOutput(s16* data, int samples);
-    void TransferOutput();
+    void ChannelSetCnt(SPUChannel &c, u32 val);
+    void ChannelUpdateCleanMixGain(SPUChannel &c);
 
+    void DrainOutputBuffer();
+    void InitOutputBuffer();
+    int OutputBufferNumAvailable() const;
+    int DequeueOutputBuffer(s16* data, int samples);
+    
+    void SetCnt(u16 cnt);
     u8 Read8(u32 addr);
     u16 Read16(u32 addr);
     u32 Read32(u32 addr);
@@ -251,16 +210,19 @@ public:
     void Write32(u32 addr, u32 val);
 
 private:
-    static const u32 OutputBufferSize = 2*2048;
+    s32 RunChannel(SPUChannel &c);
+
+    static const u32 OutputBufferLen = 4096;
     melonDS::NDS& NDS;
-    s16 OutputBackbuffer[2 * OutputBufferSize] {};
-    u32 OutputBackbufferWritePosition = 0;
-
-    s16 OutputFrontBuffer[2 * OutputBufferSize] {};
-    u32 OutputFrontBufferWritePosition = 0;
-    u32 OutputFrontBufferReadPosition = 0;
-
+    SPUSample<s16> OutputBuffer[OutputBufferLen] {};
+    std::atomic<u32> OutputBufferReadPosition = 0;
+    std::atomic<u32> OutputBufferWritePosition = 0;
+    
     Platform::Mutex* AudioLock;
+
+    MelonResampler Resampler;
+    u64 InterpCycles = 0;
+    float spuCycleT;
 
     u16 Cnt = 0;
     u8 MasterVolume = 0;
@@ -270,6 +232,8 @@ private:
 
     std::array<SPUChannel, 16> Channels;
     std::array<SPUCaptureUnit, 2> Capture;
+
+    AudioInterpolationOption InterpolationType;
 };
 
 }

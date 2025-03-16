@@ -150,6 +150,8 @@ public:
     void touchScreen(int x, int y);
     void releaseScreen();
 
+    void setTargetFPS(float _targetFPS);
+
     QMutex renderLock;
 
 private:
@@ -216,9 +218,6 @@ private:
     void micLoadWav(const std::string& name);
     void micProcess();
     void setupMicInputData();
-
-    int audioGetNumSamplesOut(int outlen);
-    void audioResample(melonDS::s16* inbuf, int inlen, melonDS::s16* outbuf, int outlen, int volume);
 
     static void audioCallback(void* data, Uint8* stream, int len);
     static void micCallback(void* data, Uint8* stream, int len);

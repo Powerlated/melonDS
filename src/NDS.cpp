@@ -95,7 +95,7 @@ NDS::NDS(NDSArgs&& args, int type, void* userdata) noexcept :
     ARM7BIOSNative(CRC32(ARM7BIOS.data(), ARM7BIOS.size()) == ARM7BIOSCRC32),
     ARM9BIOSNative(CRC32(ARM9BIOS.data(), ARM9BIOS.size()) == ARM9BIOSCRC32),
     JIT(*this, args.JIT),
-    SPU(*this, args.BitDepth, args.Interpolation),
+    SPU(*this, args.AudioBitDepth, args.AudioInterpolation, args.AudioTimeScale),
     GPU(*this, std::move(args.Renderer3D)),
     SPI(*this, std::move(args.Firmware)),
     RTC(*this),
@@ -1045,7 +1045,6 @@ u32 NDS::RunFrame()
             ARM7Timestamp-SysTimestamp,
             GPU.GPU3D.Timestamp-SysTimestamp);
 #endif
-        SPU.TransferOutput();
         break;
     }
 
