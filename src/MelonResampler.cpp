@@ -86,9 +86,11 @@ void MelonResampler::AddSample(int channel, float t, float vL, float vR)
     return;
   }
 
-  Sample dv = (v - vLast[channel]) * invWindowedSincArea;
-  vLast[channel] = v;
-  deltaQueue.Write({t, dv});
+  if (!deltaQueue.IsFull()) {
+    Sample dv = (v - vLast[channel]);
+    vLast[channel] = v;
+    deltaQueue.Write({t, dv});
+  }
 }
 
 bool MelonResampler::CanGenerateOutputBuffer()
@@ -177,11 +179,19 @@ void MelonResampler::GenerateLUT()
   {
     double shift = ((float)T * p) / LUT_PHASES;
 
+    double phaseSum = 0.0;
     for (int n = 0; n < irLen; n++)
     {
       double irT = shift + SamplesToSeconds(n);
-      lut.at(i) = ImpulseResponse(irLen, fsOut, fCutoff, irT);
+      double ir = ImpulseResponse(irLen, fsOut, fCutoff, irT);
+      lut.at(i) = ir;
+      phaseSum += ir;
       i++;
+    }
+
+    /* Normalize phase */
+    for (int n = 0; n < irLen; n++) {
+      lut.at(i) /= phaseSum;
     }
   }
 }
