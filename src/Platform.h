@@ -247,6 +247,7 @@ enum LogLevel
 void Log(LogLevel level, const char* fmt, ...);
 
 struct Thread;
+Thread* Thread_Create(std::function<void()> func, const char *name);
 Thread* Thread_Create(std::function<void()> func);
 void Thread_Free(Thread* thread);
 void Thread_Wait(Thread* thread);

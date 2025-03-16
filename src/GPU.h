@@ -709,16 +709,15 @@ private:
     Platform::Thread* RenderThread2D;
     std::atomic_bool RenderThread2DRunning = false;
     std::atomic_bool RenderThread2DRendering = false;
-    std::atomic_bool RenderThread2DSpinWait = false;
+    std::atomic_bool RenderThread2DShouldSpinwait = false;
     GPU2D::SoftRenderer GPU2D_A_Renderer;
     GPU2D::SoftRenderer GPU2D_B_Renderer;
 
     Platform::Semaphore* Sema_2DRenderStart = nullptr;
-    Platform::Semaphore* Sema_2DRenderDone = nullptr;
 
     struct {
         std::atomic<int> line;
-        std::atomic_bool drawBOnly;
+        std::atomic<bool> drawBOnly;
     } RenderThread2DData;
 
     void DrawScanline2D(u32 line, GPU2D::UnitState *stateA, GPU2D::UnitState *stateB);

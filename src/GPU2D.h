@@ -41,6 +41,9 @@ struct PreparedBuffers {
     u32 GPU3D_RenderXPos;
     u32 GPU_VRAMMap_LCDC;
     bool ForceBlank;
+
+    u8 *Palette;
+    u8 *OAM; 
 };
 struct UnitState {
     /* Config variables - doesn't change */
@@ -86,10 +89,6 @@ struct UnitState {
     u32 CaptureCnt;
 
     u16 MasterBrightness;
-
-    // Palette and OAM - 1024 bytes per GPU2D Unit
-    u8 *Palette;
-    u8 *OAM; 
 
     const PreparedBuffers *Prepared;
     SharedBuffers *Shared;

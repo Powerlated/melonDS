@@ -605,11 +605,11 @@ void Unit::PrepareToDrawScanline(u32 line)
 
                 GPU.OAMDirty &= ~0b1100;
             }
-            State.Palette = ShadowPalette;
-            State.OAM = ShadowOAM;
+            Prepared.Palette = ShadowPalette;
+            Prepared.OAM = ShadowOAM;
         } else {
-            State.Palette = &GPU.Palette[0x400];
-            State.OAM = &GPU.OAM[0x400];
+            Prepared.Palette = &GPU.Palette[0x400];
+            Prepared.OAM = &GPU.OAM[0x400];
         }
 
         auto bgDirty = GPU.VRAMDirty_BBG.DeriveState(GPU.VRAMMap_BBG, GPU);
@@ -637,11 +637,11 @@ void Unit::PrepareToDrawScanline(u32 line)
 
                 GPU.OAMDirty &= ~0b0011;
             }
-            State.Palette = ShadowPalette;
-            State.OAM = ShadowOAM;
+            Prepared.Palette = ShadowPalette;
+            Prepared.OAM = ShadowOAM;
         } else {
-            State.Palette = &GPU.Palette[0];
-            State.OAM = &GPU.OAM[0];
+            Prepared.Palette = &GPU.Palette[0];
+            Prepared.OAM = &GPU.OAM[0];
         }
         
         auto bgDirty = GPU.VRAMDirty_ABG.DeriveState(GPU.VRAMMap_ABG, GPU);

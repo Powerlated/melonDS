@@ -638,7 +638,7 @@ void SoftRenderer::DrawScanline_BGOBJ(const UnitState *state, u32 line)
         return;
     }
 
-    u64 backdrop = *(u16*)&state->Palette[0];
+    u64 backdrop = *(u16*)&state->Prepared->Palette[0];
 
     {
         u8 r = (backdrop & 0x001F) << 1;
@@ -835,7 +835,7 @@ void SoftRenderer::DrawBG_Text(const UnitState *state, u32 line, u32 bgnum)
     u16 bgcnt = state->BGCnt[bgnum];
 
     u32 tilesetaddr, tilemapaddr;
-    u16* pal = (u16*)state->Palette;
+    u16* pal = (u16*)state->Prepared->Palette;
     u32 extpal, extpalslot;
 
     u16 xoff = state->BGXPos[bgnum];
@@ -995,7 +995,7 @@ void SoftRenderer::DrawBG_Affine(const UnitState *state, u32 line, u32 bgnum)
     u16 bgcnt = state->BGCnt[bgnum];
 
     u32 tilesetaddr, tilemapaddr;
-    u16* pal = (u16*)state->Palette;
+    u16* pal = (u16*)state->Prepared->Palette;
 
     u32 coordmask;
     u32 yshift;
@@ -1089,7 +1089,7 @@ void SoftRenderer::DrawBG_Extended(const UnitState *state, u32 line, u32 bgnum)
     u16 bgcnt = state->BGCnt[bgnum];
 
     u32 tilesetaddr, tilemapaddr;
-    u16* pal = (u16*)state->Palette;
+    u16* pal = (u16*)state->Prepared->Palette;
     u32 extpal;
 
     u8* bgvram;
@@ -1299,7 +1299,7 @@ void SoftRenderer::DrawBG_Large(const UnitState *state, u32 line) // BG is alway
 {
     u16 bgcnt = state->BGCnt[2];
 
-    u16* pal = (u16*)state->Palette;
+    u16* pal = (u16*)state->Prepared->Palette;
 
     // large BG sizes:
     // 0: 512x1024
@@ -1417,7 +1417,7 @@ template <SoftRenderer::DrawPixel drawPixel>
 void SoftRenderer::InterleaveSprites(const UnitState *state, u32 prio)
 {
     u32* objLine = state->Shared->OBJLine;
-    u16* pal = (u16*)&state->Palette[0x200];
+    u16* pal = (u16*)&state->Prepared->Palette[0x200];
 
     if (state->DispCnt & 0x80000000)
     {
@@ -1480,7 +1480,7 @@ void SoftRenderer::DrawSprites(const UnitState *state, u32 line)
     memset(state->Shared->OBJWindow, 0, 256);
     if (!(state->DispCnt & 0x1000)) return;
 
-    u16* oam = (u16*)state->OAM;
+    u16* oam = (u16*)state->Prepared->OAM;
 
     const s32 spritewidth[16] =
     {
@@ -1575,7 +1575,7 @@ void SoftRenderer::DrawSprites(const UnitState *state, u32 line)
 template<bool window>
 void SoftRenderer::DrawSprite_Rotscale(const UnitState *state, u32 num, u32 boundwidth, u32 boundheight, u32 width, u32 height, s32 xpos, s32 ypos)
 {
-    u16* oam = (u16*)state->OAM;
+    u16* oam = (u16*)state->Prepared->OAM;
     u16* attrib = &oam[num * 4];
     u16* rotparams = &oam[(((attrib[1] >> 9) & 0x1F) * 16) + 3];
 
@@ -1787,7 +1787,7 @@ void SoftRenderer::DrawSprite_Rotscale(const UnitState *state, u32 num, u32 boun
 template<bool window>
 void SoftRenderer::DrawSprite_Normal(const UnitState *state, u32 num, u32 width, u32 height, s32 xpos, s32 ypos)
 {
-    u16* oam = (u16*)state->OAM;
+    u16* oam = (u16*)state->Prepared->OAM;
     u16* attrib = &oam[num * 4];
 
     u32 pixelattr = ((attrib[2] & 0x0C00) << 6) | 0xC0000;
