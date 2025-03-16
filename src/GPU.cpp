@@ -70,7 +70,6 @@ GPU::GPU(melonDS::NDS& nds, std::unique_ptr<Renderer3D>&& renderer3d) noexcept :
     GPU3D(nds, renderer3d ? std::move(renderer3d) : std::make_unique<SoftRenderer>())
 {
     Sema_2DRenderStart = Platform::Semaphore_Create();
-    Sema_2DRenderDone = Platform::Semaphore_Create();
 
     NDS.RegisterEventFuncs(Event_LCD, this,
     {
@@ -87,7 +86,6 @@ GPU::~GPU() noexcept
 {
     // All unique_ptr fields are automatically cleaned up
     Platform::Semaphore_Free(Sema_2DRenderStart);
-    Platform::Semaphore_Free(Sema_2DRenderDone);
 
     NDS.UnregisterEventFuncs(Event_LCD);
     NDS.UnregisterEventFuncs(Event_DisplayFIFO);
@@ -894,7 +892,6 @@ void GPU::StartFrame() noexcept
 
 void GPU::EnableRenderThread2D()
 {
-    Platform::Semaphore_Post(Sema_2DRenderDone);
 }
 
 void GPU::StopRenderThread2D()
@@ -904,6 +901,7 @@ void GPU::StopRenderThread2D()
         // Tell the render thread to stop drawing new frames, and finish up the current one.
         RenderThread2DRunning = false;
 
+        RenderThread2DRendering = true;
         Platform::Semaphore_Post(Sema_2DRenderStart);
 
         Platform::Thread_Wait(RenderThread2D);
@@ -916,7 +914,13 @@ void GPU::RenderThread2DFunc() {
     for (;;)
     {
         // Wait for a notice from the main thread to start rendering (or to stop entirely).
-        Platform::Semaphore_Wait(Sema_2DRenderStart);
+        if (!RenderThread2DShouldSpinwait) {
+            Platform::Semaphore_Wait(Sema_2DRenderStart);
+        } else {
+            while (!RenderThread2DRendering) {
+                _mm_pause();
+            }
+        }
 
         if (!RenderThread2DRunning) return;
         if (!RenderThread2DRendering) continue;
@@ -929,7 +933,6 @@ void GPU::RenderThread2DFunc() {
         }
 
         RenderThread2DRendering = false;
-        Platform::Semaphore_Post(Sema_2DRenderDone);
     }
 }
 
@@ -943,12 +946,11 @@ void GPU::SetupRenderThread2D()
             RenderThread2DRunning = true;
             RenderThread2D = Platform::Thread_Create([this]() {
                 RenderThread2DFunc();
-            });
+            }, "RenderThread2D");
 
         }
 
         Platform::Semaphore_Reset(Sema_2DRenderStart);
-        Platform::Semaphore_Reset(Sema_2DRenderDone);
     }
     else
     {
@@ -1003,8 +1005,13 @@ void GPU::TellRenderThreadToDrawScanline2D(u32 line, bool drawAOnCallingThread) 
 }
 
 void GPU::WaitForRenderThreadComplete2D() {
+    // If the render thread is still rendering here, that means the render thread is falling behind. 
+    // Tell the render thread to spinwait so it can wake up as soon as it can for next time.
+    RenderThread2DShouldSpinwait = RenderThread2DRendering.load();
+
+    // This spinwait should be ok, since the emulator should theoretically always take longer than the render thread.
     while (RenderThread2DRendering) {
-        Platform::Semaphore_Wait(Sema_2DRenderDone);
+        _mm_pause();
     }
 }
 

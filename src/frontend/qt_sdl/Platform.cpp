@@ -311,6 +311,14 @@ void Log(LogLevel level, const char* fmt, ...)
     va_end(args);
 }
 
+Thread* Thread_Create(std::function<void()> func, const char* name)
+{
+    QThread* t = QThread::create(func);
+    t->setObjectName(name);
+    t->start();
+    return (Thread*) t;
+}
+
 Thread* Thread_Create(std::function<void()> func)
 {
     QThread* t = QThread::create(func);

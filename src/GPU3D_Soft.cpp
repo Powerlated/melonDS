@@ -54,7 +54,7 @@ void SoftRenderer::SetupRenderThread(GPU& gpu)
             RenderThreadRunning = true; // "Time for work, render thread!"
             RenderThread = Platform::Thread_Create([this, &gpu]() {
                 RenderThreadFunc(gpu);
-            });
+            }, "RenderThread3D");
         }
 
         // "Be on standby, but don't start rendering until I tell you to!"
