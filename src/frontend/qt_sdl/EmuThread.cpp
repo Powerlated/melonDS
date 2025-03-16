@@ -406,7 +406,8 @@ void EmuThread::run()
 
             // During fast forward, don't bother doing a few things more often than target FPS
             fastForwardFpsTimer += dt; 
-            if (!fastforward || fastForwardFpsTimer >= 1.0 / emuInstance->targetFPS) {
+            bool isSomeKindOfSpeedupHappening = !emuInstance->doLimitFPS || fastforward;
+            if (!isSomeKindOfSpeedupHappening || fastForwardFpsTimer >= 1.0 / emuInstance->targetFPS) {
                 fastForwardFpsTimer = 0.0;
 
                 if (!useOpenGL)
