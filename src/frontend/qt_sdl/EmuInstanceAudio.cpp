@@ -356,7 +356,7 @@ void EmuInstance::audioInit()
     audioSyncCond = SDL_CreateCond();
     audioSyncLock = SDL_CreateMutex();
 
-    audioFreq = 32768; // TODO: make configurable?
+    audioFreq = 48000; // TODO: make configurable?
     SDL_AudioSpec whatIwant, whatIget;
     memset(&whatIwant, 0, sizeof(SDL_AudioSpec));
     whatIwant.freq = audioFreq;

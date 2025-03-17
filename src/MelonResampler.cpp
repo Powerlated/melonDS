@@ -23,12 +23,14 @@ MelonResampler::MelonResampler(
       outputBufferLen(outputBufferLen),
       tLastSample(0),
       vLast{},
-      tThisBufferStart(0),
-      vOut(Sample{}),
-      c(Sample{})
+      tThisBufferStart(0)
 {
   assert(fCutoff <= fsOut / 2);
+
+  memset(vOut, 0, sizeof(vOut));
+
   outputBuffer.resize(outputBufferLen);
+  intermediateBuffer.resize(outputBufferLen);
 
   GenerateLUT();
 
@@ -50,7 +52,9 @@ MelonResampler::MelonResampler(
 
 void MelonResampler::Reset()
 {
-  deltaQueue.Clear();
+  for (auto &deltaQueue : deltaQueues) {
+    deltaQueue.Clear();
+  }
 
   tLastSample = 0;
   for (auto v : vLast)
@@ -58,16 +62,17 @@ void MelonResampler::Reset()
     v = {};
   }
   tThisBufferStart = 0;
-  vOut = Sample{};
-  c = Sample{};
+  memset(vOut, 0, sizeof(vOut));
 }
 
 void MelonResampler::WalkBackTime(float t)
 {
-  uint32_t size = deltaQueue.Level();
-  for (uint32_t i = 0; i < size; i++)
-  {
-    deltaQueue.PeekPtr(i)->t -= t;
+  for (auto &deltaQueue : deltaQueues) {
+    uint32_t size = deltaQueue.Level();
+    for (uint32_t i = 0; i < size; i++)
+    {
+      deltaQueue.PeekPtr(i)->t -= t;
+    }
   }
 
   tLastSample -= t;
@@ -86,10 +91,10 @@ void MelonResampler::AddSample(int channel, float t, float vL, float vR)
     return;
   }
 
-  if (!deltaQueue.IsFull()) {
+  if (!deltaQueues[channel].IsFull()) {
     Sample dv = (v - vLast[channel]);
     vLast[channel] = v;
-    deltaQueue.Write({t, dv});
+    deltaQueues[channel].Write({t, dv});
   }
 }
 
@@ -102,62 +107,75 @@ bool MelonResampler::CanGenerateOutputBuffer()
 const std::vector<MelonResampler::Sample> &MelonResampler::GenerateOutputBuffer()
 {
   // assert(CanGenerateOutputBuffer());
-  std::fill(outputBuffer.begin(), outputBuffer.end(), Sample{});
-
   float tThisBufferEnd = tThisBufferStart + SamplesToSeconds(outputBufferLen);
 
-  uint32_t size = deltaQueue.Level();
-  for (uint32_t qi = 0; qi < size; qi++)
-  {
-    auto delta = deltaQueue.Peek(qi);
-    // This delta is past the end of the buffer, we are done for now
-    if (delta.t > tThisBufferEnd)
+  for (int c = 0; c < 16; c++) {
+    auto &deltaQueue = deltaQueues[c];
+    std::fill(intermediateBuffer.begin(), intermediateBuffer.end(), Sample{});
+
+    uint32_t size = deltaQueue.Level();
+    for (uint32_t qi = 0; qi < size; qi++)
     {
-      break;
+      auto delta = deltaQueue.Peek(qi);
+      // This delta is past the end of the buffer, we are done for now
+      if (delta.t > tThisBufferEnd)
+      {
+        break;
+      }
+
+      // when does this delta's influence start?
+      int32_t i = floor((delta.t - tThisBufferStart) * fsOut);
+
+      // when does this delta's influence end?
+      int32_t iEnd = i + irLen;
+      if (i < 0)
+      {
+        i = 0;
+      }
+
+      if (iEnd > (int)outputBufferLen)
+      {
+        iEnd = outputBufferLen;
+      }
+
+      float irN = (tThisBufferStart + i * T - delta.t) * fsOut;
+      // break into fractional and integer part for LUT access
+      int32_t irLutN = (int32_t)floor(irN);
+      float irLutFrac = irN - irLutN;
+      int32_t irLutPhase = irLutFrac * LUT_PHASES; 
+      int32_t irLutI = irLutPhase * irLen + irLutN + 4; // 4 entries of padding in case some calculation is off and gives us a negative index
+      for (; i < iEnd; i++)
+      {
+        intermediateBuffer[i] += delta.dV * lut[irLutI];
+        irLutI++;
+      }
     }
 
-    // when does this delta's influence start?
-    int32_t i = floor((delta.t - tThisBufferStart) * fsOut);
-
-    // when does this delta's influence end?
-    int32_t iEnd = i + irLen;
-    if (i < 0)
+    // Remove deltas that won't affect the next buffer
+    while (!deltaQueue.IsEmpty() && deltaQueue.Peek().t + SamplesToSeconds(irLen) < tThisBufferEnd)
     {
-      i = 0;
+      deltaQueue.Read();
     }
 
-    if (iEnd > (int)outputBufferLen)
+    // Integrate & filter the intermediate buffer
+    for (int i = 0; i < outputBufferLen; i++)
     {
-      iEnd = outputBufferLen;
+      vOut[c] += intermediateBuffer[i];
+      intermediateBuffer[i] = vOut[c];
     }
 
-    float irN = (tThisBufferStart + i * T - delta.t) * fsOut;
-    // break into fractional and integer part for LUT access
-    int32_t irLutN = (int32_t)floor(irN);
-    float irLutFrac = irN - irLutN;
-    int32_t irLutPhase = irLutFrac * LUT_PHASES; 
-    int32_t irLutI = irLutPhase * irLen + irLutN + 4; // 4 entries of padding in case some calculation is off and gives us a negative index
-    for (; i < iEnd; i++)
-    {
-      outputBuffer[i] += delta.dV * lut[irLutI];
-      irLutI++;
+    // Sum up intermediate into output
+    if (c == 0) {
+      // If channel is 0 overwrite output
+      for (int i = 0; i < outputBufferLen; i++) {
+        outputBuffer[i] = intermediateBuffer[i];
+      }
+    } else {
+      // Otherwise sum into output
+      for (int i = 0; i < outputBufferLen; i++) {
+        outputBuffer[i] += intermediateBuffer[i];
+      }
     }
-  }
-
-  // Remove deltas that won't affect the next buffer
-  while (!deltaQueue.IsEmpty() && deltaQueue.Peek().t + SamplesToSeconds(irLen) < tThisBufferEnd)
-  {
-    deltaQueue.Read();
-  }
-
-  // Integrate the output buffer, using Kahan summation algorithm
-  for (uint32_t i = 0; i < outputBufferLen; i++)
-  {
-    Sample a = outputBuffer[i] - c;
-    Sample b = vOut + a;
-    c = (b - vOut) - a;
-    vOut = b;
-    outputBuffer[i] = vOut;
   }
 
   tThisBufferStart = tThisBufferEnd;

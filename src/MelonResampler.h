@@ -65,8 +65,9 @@ private:
     float SamplesToSeconds(float samples);
 
     std::vector<float> lut;
-    melonDS::FIFO<Delta, 65536> deltaQueue;
+    melonDS::FIFO<Delta, 4096> deltaQueues[16];
     std::vector<Sample> outputBuffer;
+    std::vector<Sample> intermediateBuffer;
 
     float fsOut;
     float T;
@@ -78,7 +79,7 @@ private:
     float tLastSample;
     Sample vLast[16];
     float tThisBufferStart;
-    Sample vOut;
+    Sample vOut[16];
     // A running compensation for lost low-order bits during summation.
     Sample c;
 }; 
