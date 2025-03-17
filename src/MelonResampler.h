@@ -65,7 +65,7 @@ private:
     float SamplesToSeconds(float samples);
 
     std::vector<float> lut;
-    melonDS::FIFO<Delta, 32768> deltaQueue;
+    melonDS::FIFO<Delta, 65536> deltaQueue;
     std::vector<Sample> outputBuffer;
 
     float fsOut;
@@ -73,7 +73,6 @@ private:
     float fCutoff;
     uint32_t irLen;
     uint32_t outputBufferLen;
-    float invWindowedSincArea;
     
     float tLastSample;
     Sample vLast[16];

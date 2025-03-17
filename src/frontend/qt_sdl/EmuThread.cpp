@@ -432,8 +432,8 @@ void EmuThread::run()
                     nframes = 0;
 
                     float fpstarget = 1.0/frametimeStep;
-                        
-                    double actualNdsFps = (59.8261 * 263.0) / nlines;
+
+                    double actualNdsFps = (ndsTrueFramerate * 263.0) / nlines;
                     int inst = emuInstance->instanceID;
                     if (inst == 0)
                         snprintf(melontitle, sizeof(melontitle), "[%d/%.0f] melonDS " MELONDS_VERSION, fps, actualNdsFps);
