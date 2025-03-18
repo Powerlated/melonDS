@@ -21,6 +21,7 @@
 
 #include "types.h"
 #include "Savestate.h"
+#include <atomic>
 
 namespace melonDS
 {
