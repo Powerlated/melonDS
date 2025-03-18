@@ -115,6 +115,84 @@ private:
     u32 ReadPos = 0, WritePos = 0;
 };
 
+template<typename T, u32 NumEntries>
+class ThreadSafeFIFO
+{
+public:
+    void Clear()
+    {
+        NumOccupied = 0;
+        ReadPos = 0;
+        WritePos = 0;
+        memset(&Entries[ReadPos], 0, sizeof(T));
+    }
+
+    void Write(T val)
+    {
+        if (IsFull()) return;
+
+        Entries[WritePos] = val;
+
+        WritePos++;
+        if (WritePos >= NumEntries)
+            WritePos = 0;
+
+        NumOccupied++;
+    }
+
+    T Read()
+    {
+        T ret = Entries[ReadPos];
+        if (IsEmpty())
+            return ret;
+
+        ReadPos++;
+        if (ReadPos >= NumEntries)
+            ReadPos = 0;
+
+        NumOccupied--;
+        return ret;
+    }
+
+    T Peek() const
+    {
+        return Entries[ReadPos];
+    }
+
+    T Peek(u32 offset) const
+    {
+        u32 pos = ReadPos + offset;
+        if (pos >= NumEntries)
+            pos -= NumEntries;
+
+        return Entries[pos];
+    }
+
+    T* PeekPtr()
+    {
+        return &Entries[ReadPos];
+    }
+
+    T* PeekPtr(u32 offset)
+    {
+        u32 pos = ReadPos + offset;
+        if (pos >= NumEntries)
+            pos -= NumEntries;
+
+        return &Entries[pos];
+    }
+
+    u32 Level() const { return NumOccupied; }
+    bool IsEmpty() const { return NumOccupied == 0; }
+    bool IsFull() const { return NumOccupied >= NumEntries; }
+
+    bool CanFit(u32 num) const { return ((NumOccupied + num) <= NumEntries); }
+
+private:
+    T Entries[NumEntries] = {0};
+    std::atomic<u32> NumOccupied = 0;
+    std::atomic<u32> ReadPos = 0, WritePos = 0;
+};
 
 template<typename T>
 class DynamicFIFO

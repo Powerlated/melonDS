@@ -4,32 +4,17 @@
 #include <stdio.h>
 #include "MelonResampler.h"
 
-#define LUT_PHASES 1024
-
 double CausalScaledWindowedSincBlackman(double irLen, double fsOut, double fCutoff, double t);
 double CausalScaledSinc(double irLen, double fsOut, double fCutoff, double t);
 
 #define ImpulseResponse CausalScaledWindowedSincBlackman 
 
-MelonResampler::MelonResampler(
-    uint32_t outputBufferLen,
-    uint32_t irLen,
-    float fsOut,
-    float fCutoff)
-    : fsOut(fsOut),
-      T(1.0 / fsOut),
-      fCutoff(fCutoff),
-      irLen(irLen),
-      outputBufferLen(outputBufferLen),
-      tLastSample(0),
+MelonResampler::MelonResampler() :
       vLast{},
-      tThisBufferStart(0),
-      vOut(Sample{}),
-      c(Sample{})
+      cycleThisBufferStart(0),
+      cycleUpToDate(0),
+      vOut(Sample{})
 {
-  assert(fCutoff <= fsOut / 2);
-  outputBuffer.resize(outputBufferLen);
-
   GenerateLUT();
 }
 
@@ -37,33 +22,18 @@ void MelonResampler::Reset()
 {
   deltaQueue.Clear();
 
-  tLastSample = 0;
   for (auto v : vLast)
   {
     v = {};
   }
-  tThisBufferStart = 0;
+  cycleThisBufferStart = 0;
+  cycleUpToDate = 0;
   vOut = Sample{};
-  c = Sample{};
 }
 
-void MelonResampler::WalkBackTime(float t)
+void MelonResampler::AddSample(int channel, uint64_t cycle, float vL, float vR)
 {
-  uint32_t size = deltaQueue.Level();
-  for (uint32_t i = 0; i < size; i++)
-  {
-    deltaQueue.PeekPtr(i)->t -= t;
-  }
-
-  tLastSample -= t;
-  tThisBufferStart -= t;
-}
-
-void MelonResampler::AddSample(int channel, float t, float vL, float vR)
-{
-  assert(t >= tThisBufferStart);
-
-  tLastSample = t;
+  assert(cycle >= cycleThisBufferStart);
   
   Sample v = Sample {vL, vR};
   if (vLast[channel] == v)
@@ -74,54 +44,63 @@ void MelonResampler::AddSample(int channel, float t, float vL, float vR)
   if (!deltaQueue.IsFull()) {
     Sample dv = (v - vLast[channel]);
     vLast[channel] = v;
-    deltaQueue.Write({t, dv});
+    deltaQueue.Write({cycle, dv});
   }
+}
+
+void MelonResampler::IHaveAddedAllSamplesUpToButNotIncludingCycle(uint64_t cycle) {
+  cycleUpToDate = cycle;
 }
 
 bool MelonResampler::CanGenerateOutputBuffer()
 {
-  float tThisBufferEnd = tThisBufferStart + SamplesToSeconds(outputBufferLen);
-  return tLastSample > tThisBufferEnd;
+  return cycleUpToDate > cycleThisBufferStart;
 }
 
-const std::vector<MelonResampler::Sample> &MelonResampler::GenerateOutputBuffer()
+
+const std::array<MelonResampler::Sample, MelonResampler::OUTPUT_BUFFER_LEN> &MelonResampler::GenerateOutputBuffer()
 {
   // assert(CanGenerateOutputBuffer());
   std::fill(outputBuffer.begin(), outputBuffer.end(), Sample{});
 
-  float tThisBufferEnd = tThisBufferStart + SamplesToSeconds(outputBufferLen);
+  float tThisBufferEnd = OUTPUT_BUFFER_LEN / FS_OUT;
 
   uint32_t size = deltaQueue.Level();
   for (uint32_t qi = 0; qi < size; qi++)
   {
     auto delta = deltaQueue.Peek(qi);
+
+    // Relative to start of buffer
+    float cycleDelta = (float)(delta.cycles - cycleThisBufferStart) - cycleThisBufferStartFrac;   
+    float tDelta = cycleDelta / F_SYSTEM;
+
     // This delta is past the end of the buffer, we are done for now
-    if (delta.t > tThisBufferEnd)
+    if (tDelta > tThisBufferEnd)
     {
       break;
     }
 
     // when does this delta's influence start?
-    int32_t i = floor((delta.t - tThisBufferStart) * fsOut);
+    int32_t i = floor(tDelta * FS_OUT);
 
-    // when does this delta's influence end?
-    int32_t iEnd = i + irLen;
+    // what is the sample after this delta's influence ends?
+    int32_t iEnd = i + IR_LEN;
     if (i < 0)
     {
       i = 0;
     }
 
-    if (iEnd > (int)outputBufferLen)
+    if (iEnd > OUTPUT_BUFFER_LEN)
     {
-      iEnd = outputBufferLen;
+      iEnd = OUTPUT_BUFFER_LEN;
     }
 
-    float irN = (tThisBufferStart + i * T - delta.t) * fsOut;
+    float irN = (i * T - tDelta) * FS_OUT;
     // break into fractional and integer part for LUT access
     int32_t irLutN = (int32_t)floor(irN);
     float irLutFrac = irN - irLutN;
     int32_t irLutPhase = irLutFrac * LUT_PHASES; 
-    int32_t irLutI = irLutPhase * irLen + irLutN + 4; // 4 entries of padding in case some calculation is off and gives us a negative index
+    int32_t irLutI = irLutPhase * IR_LEN + irLutN + 4; // 4 entries of padding in case some calculation is off and gives us a negative index
     for (; i < iEnd; i++)
     {
       outputBuffer[i] += delta.dV * lut[irLutI];
@@ -130,34 +109,41 @@ const std::vector<MelonResampler::Sample> &MelonResampler::GenerateOutputBuffer(
   }
 
   // Remove deltas that won't affect the next buffer
-  while (!deltaQueue.IsEmpty() && deltaQueue.Peek().t + SamplesToSeconds(irLen) < tThisBufferEnd)
+  while (!deltaQueue.IsEmpty())
   {
+    float cycleDelta = (float)(deltaQueue.Peek().cycles - cycleThisBufferStart) - cycleThisBufferStartFrac;   
+    float tDelta = cycleDelta / F_SYSTEM;
+    if (tDelta > tThisBufferEnd) {
+      break;
+    }
     deltaQueue.Read();
   }
 
-  // Integrate the output buffer, using Kahan summation algorithm
-  for (uint32_t i = 0; i < outputBufferLen; i++)
+  // Integrate the output buffer
+  for (uint32_t i = 0; i < OUTPUT_BUFFER_LEN; i++)
   {
-    Sample a = outputBuffer[i] - c;
-    Sample b = vOut + a;
-    c = (b - vOut) - a;
-    vOut = b;
+    vOut += outputBuffer[i];
     outputBuffer[i] = vOut;
   }
 
-  tThisBufferStart = tThisBufferEnd;
+  cycleThisBufferStart += floor(OUTPUT_BUFFER_LEN / FS_OUT * F_SYSTEM);
+  cycleThisBufferStartFrac += fmod(OUTPUT_BUFFER_LEN / FS_OUT * F_SYSTEM, 1.0f);
+  if (cycleThisBufferStartFrac > 1) {
+    cycleThisBufferStartFrac -= 1;
+    cycleThisBufferStart++;
+  }
+
   return outputBuffer;
 }
 
 float MelonResampler::SamplesToSeconds(float n)
 {
-  return n / fsOut;
+  return n / FS_OUT;
 }
 
 void MelonResampler::GenerateLUT()
 {
   // Give it 8 entries of padding, 4 on each side of the IR
-  lut.resize(LUT_PHASES * irLen + 8);
   std::fill(lut.begin(), lut.end(), 0.0);
   int i = 4;
   for (int p = 0; p < LUT_PHASES; p++)
@@ -165,17 +151,17 @@ void MelonResampler::GenerateLUT()
     double shift = ((float)T * p) / LUT_PHASES;
 
     double phaseSum = 0.0;
-    for (int n = 0; n < irLen; n++)
+    for (int n = 0; n < IR_LEN; n++)
     {
       double irT = shift + SamplesToSeconds(n);
-      double ir = ImpulseResponse(irLen, fsOut, fCutoff, irT);
+      double ir = ImpulseResponse(IR_LEN, FS_OUT, F_CUTOFF, irT);
       lut.at(i) = ir;
       phaseSum += ir;
       i++;
     }
 
     /* Normalize phase */
-    for (int n = 0; n < irLen; n++) {
+    for (int n = 0; n < IR_LEN; n++) {
       lut.at(i) /= phaseSum;
     }
   }

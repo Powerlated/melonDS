@@ -23,6 +23,7 @@
 #include "NDS.h"
 #include "DSi.h"
 #include "SPU.h"
+#include "MelonResampler.h"
 
 namespace melonDS
 {
@@ -65,11 +66,6 @@ const s16 SPUChannel::PSGTable[8][8] =
     {-0x7FFF, -0x7FFF, -0x7FFF, -0x7FFF, -0x7FFF, -0x7FFF, -0x7FFF, -0x7FFF}
 };
 
-const int RESAMPLER_BUF_LEN = 512;
-const int RESAMPLER_IR_LEN = 24;
-const int RESAMPLER_OUT_FS = 32768; // Fs = frequency, sample (i.e. sample rate)
-const int RESAMPLER_CUTOFF = 15360; 
-
 SPU::SPU(melonDS::NDS& nds, AudioBitDepthOption bitdepth, AudioInterpolationOption interpolation, float timeScale) :
     NDS(nds),
     Channels {
@@ -96,17 +92,12 @@ SPU::SPU(melonDS::NDS& nds, AudioBitDepthOption bitdepth, AudioInterpolationOpti
         SPUCaptureUnit(1, nds),
     },
     Degrade10Bit(bitdepth == AudioBitDepthOption::_10Bit || (nds.ConsoleType == 1 && bitdepth == AudioBitDepthOption::Auto)),
-    Resampler(MelonResampler(RESAMPLER_BUF_LEN, RESAMPLER_IR_LEN, RESAMPLER_OUT_FS, RESAMPLER_CUTOFF))
+    Resampler(std::make_unique<MelonResampler>())
 {
     NDS.RegisterEventFuncs(Event_SPU, this, {MakeEventThunk(SPU, Run)});
 
     ApplyBias = true;
     Degrade10Bit = false;
-
-    memset(OutputBuffer, 0, sizeof(OutputBuffer));
-
-    OutputBufferReadPosition = 0;
-    OutputBufferWritePosition = 0;
 
     SetTimeScale(timeScale);
 }
@@ -120,8 +111,6 @@ SPU::~SPU()
 
 void SPU::Reset()
 {
-    InitOutputBuffer();
-
     SetCnt(0);
 
     MasterVolume = 0;
@@ -135,18 +124,14 @@ void SPU::Reset()
     Capture[0].Reset();
     Capture[1].Reset();
 
-    Resampler.Reset();
-    InterpCycles = 0;
+    Resampler->Reset();
+    SPUCycles = 0;
 
     NDS.ScheduleEvent(Event_SPU, false, 1024, 0, 0);
 }
 
 void SPU::Stop()
 {
-    memset(OutputBuffer, 0, sizeof(OutputBuffer));
-
-    OutputBufferReadPosition = 0;
-    OutputBufferWritePosition = 0;
 }
 
 void SPU::DoSavestate(Savestate* file)
@@ -174,14 +159,13 @@ void SPU::SetInterpolation(AudioInterpolationOption type)
 {
     InterpolationType = type;
     for (int i = 0; i < 16; i++) {
-        Resampler.AddSample(i, InterpCycles * spuCycleT, 0, 0);
+        Resampler->AddSample(i, SPUCycles, 0, 0);
     }
 }
 
 void SPU::SetTimeScale(float timeScale)
 {
-    spuCycleT = timeScale / (33513982 / 2);
-    Resampler.Reset();
+    Resampler->Reset();
 }
 
 void SPU::SetBias(u16 bias)
@@ -758,7 +742,7 @@ s32 SPU::RunChannel(SPUChannel &c)
         ((type < 3) && ((c.Length+c.LoopPos) < 16))
     ) {
         if (InterpolationType == AudioInterpolationOption::Clean) {
-            Resampler.AddSample(c.Num, InterpCycles * spuCycleT, 0, 0);
+            Resampler->AddSample(c.Num, SPUCycles, 0, 0);
         }
         return 0;
     }
@@ -769,12 +753,12 @@ s32 SPU::RunChannel(SPUChannel &c)
         c.KeyOn = false;
 
         if (InterpolationType == AudioInterpolationOption::Clean) {
-            Resampler.AddSample(c.Num, InterpCycles * spuCycleT, 0, 0);
+            Resampler->AddSample(c.Num, SPUCycles, 0, 0);
         }
     }
 
     // At what cycle is this timer gonna HIT???
-    u64 cycle = InterpCycles + (0x10000 - c.Timer);
+    u64 cycle = SPUCycles + (0x10000 - c.Timer);
     c.Timer += 512; // 1 sample = 512 cycles at 16MHz
     while (c.Timer >> 16)
     {
@@ -792,13 +776,11 @@ s32 SPU::RunChannel(SPUChannel &c)
         if (InterpolationType == AudioInterpolationOption::Clean) {
             // All bitshifts converted to divisions for maximum hifi
             SPUSample<float> sample{
-                .l = ((s64)c.CurSample * (128-c.Pan)) * c.CleanMixGainL,
-                .r = ((s64)c.CurSample * c.Pan) * c.CleanMixGainR,    
+                ((s64)c.CurSample * (128-c.Pan)) * c.CleanMixGainL,
+                ((s64)c.CurSample * c.Pan) * c.CleanMixGainR,    
             };
             
-            const float t = cycle * spuCycleT;
-            
-            Resampler.AddSample(c.Num, t, sample.l, sample.r);
+            Resampler->AddSample(c.Num, cycle, sample.l, sample.r);
         }
         
         c.Timer = c.TimerReload + (c.Timer - 0x10000);
@@ -861,81 +843,26 @@ void SPU::Run(u32 dummy)
         }
     }
 
-    InterpCycles += 512;
-    const float t = InterpCycles * spuCycleT;
     if (InterpolationType == AudioInterpolationOption::Faithful) {
         SPUSample<s32> output{};
-
+        
         if ((Cnt & (1<<15))) {
             output = Mix();
         }
-
-        Resampler.AddSample(0, t, (float)output.l, (float)output.r);
-    }
-
-    if (Resampler.CanGenerateOutputBuffer()) {
-        const int WalkBackInterval = 33513982 / 2;
-        if (InterpCycles >= WalkBackInterval) {
-            InterpCycles -= WalkBackInterval;
-            Resampler.WalkBackTime(WalkBackInterval * spuCycleT);
-        }
         
-        auto& outBuf = Resampler.GenerateOutputBuffer();
-
-        // compensate for sinc interpolation overshoot
-        const float OVERSHOOT_COMPENSATION = 0.9;
-
-        int numToWrite = OutputBufferLen - OutputBufferNumAvailable(); 
-        if (numToWrite > outBuf.size()) {
-            numToWrite = outBuf.size();
-        }
-
-        int pos = OutputBufferWritePosition;
-        for (int i = 0; i < numToWrite; i++) {
-            auto l = (s32)(outBuf[i].v[0] * 0.5 * OVERSHOOT_COMPENSATION);
-            auto r = (s32)(outBuf[i].v[1] * 0.5 * OVERSHOOT_COMPENSATION);
-            // TODO: there is probably still clipping happening here!!
-            l = std::clamp(l, -32768, 32767);
-            r = std::clamp(r, -32768, 32767);
-            OutputBuffer[pos] = {
-                (s16)(l), 
-                (s16)(r)
-            };
-            
-            pos = (pos + 1) % OutputBufferLen;
-        }
-        OutputBufferWritePosition = pos;
+        Resampler->AddSample(0, SPUCycles, (float)output.l, (float)output.r);
     }
 
+    Resampler->IHaveAddedAllSamplesUpToButNotIncludingCycle(SPUCycles);
+
+    SPUCycles += 512;
+    
     NDS.ScheduleEvent(Event_SPU, true, 1024, 0, 0);
-}
-
-void SPU::DrainOutputBuffer()
-{
-    OutputBufferWritePosition = 0;
-    OutputBufferReadPosition = 0;
-}
-
-void SPU::InitOutputBuffer()
-{
-    memset(OutputBuffer, 0, sizeof(OutputBuffer));
-    OutputBufferReadPosition = 0;
-    OutputBufferWritePosition = 0;
 }
 
 int SPU::OutputBufferNumAvailable() const
 {
-    int ret;
-    if (OutputBufferWritePosition >= OutputBufferReadPosition) 
-    {
-        ret = OutputBufferWritePosition - OutputBufferReadPosition;
-    } 
-    else 
-    {
-        ret = OutputBufferLen - OutputBufferReadPosition + OutputBufferWritePosition;
-    }
-
-    return ret;
+    return 0; // TODO
 }
 
 /**
@@ -943,23 +870,20 @@ int SPU::OutputBufferNumAvailable() const
  */
 int SPU::DequeueOutputBuffer(s16* data, int samples)
 {
-    int numToRead = OutputBufferNumAvailable();
-    if (numToRead > samples) {
-        numToRead = samples;
+    if (Resampler->CanGenerateOutputBuffer()) {
+        auto& outBuf = Resampler->GenerateOutputBuffer();
+
+        // compensate for sinc interpolation overshoot
+        const float OVERSHOOT_COMPENSATION = 0.9;
+
+        for (int i = 0; i < outBuf.size(); i++) {
+            auto l = (s32)(outBuf[i].v[0] * 0.5 * OVERSHOOT_COMPENSATION);
+            auto r = (s32)(outBuf[i].v[1] * 0.5 * OVERSHOOT_COMPENSATION);
+            // TODO: there is probably still clipping happening here!!
+            *data++ = std::clamp(l, -32768, 32767);
+            *data++ = std::clamp(r, -32768, 32767);
+        }
     }
-
-    int pos = OutputBufferReadPosition;
-    for (int i = 0; i < numToRead; i++)
-    {
-        auto s = OutputBuffer[pos];
-        *data++ = s.l;
-        *data++ = s.r;
-
-        pos = (pos + 1) % OutputBufferLen;
-    }
-    OutputBufferReadPosition = pos;
-
-    return numToRead;
 }
 
 void SPU::SetCnt(u16 cnt) {
